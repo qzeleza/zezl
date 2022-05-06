@@ -1,0 +1,18 @@
+{
+    "server":"[91.225.104.85]",
+    "server_ipv6":"::",
+    "server_port":443,
+    "local_address":"127.0.0.1",
+    "local_port":1080,
+    "password":"bexge6-xuvvos-wEwbik",
+    "timeout":86400,
+    "method":"chacha20-ietf",
+    "protocol":"origin",
+    "protocol_param":"",
+    "obfs":"http_simple_compatible",
+    "obfs_param":"",
+    "redirect":"",
+    "dns_ipv6":false,
+    "fast_open":false,
+    "workers":1
+}

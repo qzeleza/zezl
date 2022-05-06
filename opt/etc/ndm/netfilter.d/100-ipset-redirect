@@ -1,0 +1,20 @@
+#!/bin/sh
+
+LOCAL_SERVER_IP=$(kdig $(hostname) +short)
+SSR_PORT=$(cat /opt/etc/shadowsocks.json | grep server_port | )
+SSR_PORT=${SSR_PORT::-1}
+INFACE=$(ip a | grep "${LOCAL_SERVER_IP}" | sed 's/^ *//g' | cut -d' ' -f7-)
+
+[ "$type" == "ip6tables" ] && exit 0
+if [ -z "$(iptables-save 2>/dev/null | grep unblock)" ]; then
+    ipset create unblock hash:net family inet -exist
+    iptables -I PREROUTING -w -t nat -i "${INFACE}" -p tcp -m set --match-set unblock dst -j REDIRECT --to-port "${SSR_PORT}"
+    iptables -I PREROUTING -w -t nat -i "${INFACE}" -p udp -m set --match-set unblock dst -j REDIRECT --to-port "${SSR_PORT}"
+fi
+if [ -z "$(iptables-save 2>/dev/null | grep "udp \-\-dport 53 \-j DNAT")" ]; then
+    iptables -w -t nat -I PREROUTING -i "${INFACE}" -p udp --dport 53 -j DNAT --to "${LOCAL_SERVER_IP}"
+fi
+if [ -z "$(iptables-save 2>/dev/null | grep "tcp \-\-dport 53 \-j DNAT")" ]; then
+    iptables -w -t nat -I PREROUTING -i "${INFACE}" -p tcp --dport 53 -j DNAT --to "${LOCAL_SERVER_IP}"
+fi
+exit 0

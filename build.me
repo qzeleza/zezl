@@ -1,0 +1,375 @@
+#!/bin/bash
+set -e
+# Инструкции по сборке пакетов
+# 0. https://forum.keenetic.com/topic/1288-самостоятельная-сборка-пакетов/
+# 1. http://forums.zyxmon.org/viewtopic.php?f=8&t=17
+# 2. https://openwrt.org/docs/guide-developer/start
+# 3. https://openwrt.org/docs/guide-developer/toolchain/single.package
+# 4. https://forum.keenetic.com/topic/1288-самостоятельная-сборка-пакетов/page/2/
+# 5. https://openwrt.org/docs/guide-developer/packages#buildpackage_variables
+#
+
+APP_NAME=zezl
+DEMON_NAME=zpu
+APP_VERSION_MAIN="1"
+APP_VERSION="0.0"
+APP_VERSION_STAGE="beta"
+APP_RELEASE=1
+APP_ARCH=all
+APP_INITD_NAME="S61${APP_NAME}"
+BACKUP_DIR=backups
+MY_PASS="UyK-2Dr-171"
+
+APP_ROOT=/opt/apps/${APP_NAME}/${APP_NAME}
+APP_SRC_PATH=${APP_ROOT}
+APP_SRC_ETC_PATH=/opt/apps/${APP_NAME}/opt/etc
+APP_INITD_DEST_PATH=/opt/etc/init.d
+
+
+ROOT_TOOLS=/opt/apps/${APP_NAME}/Entware
+APP_TOOLS_PATH=${ROOT_TOOLS}/package/utils/${APP_NAME}
+APP_TOOLS_VERSION_FILE=${APP_TOOLS_PATH}/.version
+APP_TOOLS_RELEASE_FILE=${APP_TOOLS_PATH}/.release
+
+APP_BUILD_FILES_PATH=${APP_TOOLS_PATH}/files
+APP_BUILD_OPT_FILES_PATH=${APP_BUILD_FILES_PATH}/opt/etc
+APP_BUILD_APP_FILES_PATH=${APP_BUILD_FILES_PATH}
+
+rm -rf "${APP_BUILD_FILES_PATH}" "${APP_BUILD_OPT_FILES_PATH}"
+mkdir -p ${APP_BUILD_OPT_FILES_PATH} ${APP_BUILD_FILES_PATH}
+
+cp -a "${APP_SRC_ETC_PATH}/." ${APP_BUILD_OPT_FILES_PATH}/
+cp -a "${APP_SRC_PATH}/." ${APP_BUILD_FILES_PATH}/
+
+# Первоначальные действия если файл с версией релиза еще не создавался
+if ! [ -f "${APP_TOOLS_RELEASE_FILE}" ] || [ "${2}" = '0' ]; then
+	./toolschain.sh ${ROOT_TOOLS}
+	mkdir -p "${APP_BUILD_APP_FILES_PATH}"
+	mkdir -p "${APP_BUILD_OPT_FILES_PATH}/etc/init.d"
+#	stat "${APP_BIN_DEST_PATH}"/${APP_NAME}.py | grep 'Change:' > "${APP_TIME_CHANGE_FILE}"
+else
+	APP_RELEASE=$(cat "${APP_TOOLS_RELEASE_FILE}")
+	APP_VERSION=$(cat "${APP_TOOLS_VERSION_FILE}")
+	if [ "${APP_RELEASE}" -ge 20 ]; then
+		APP_VERSION=$(echo "${APP_VERSION}" | cut -d'.' -f2)
+		if [ "${APP_VERSION}" -ge 10 ]; then
+			APP_MAJOR=$(echo "${APP_VERSION}" | cut -d'.' -f1)
+			APP_MAJOR=$((APP_MAJOR+1))
+			APP_VERSION="${APP_MAJOR}"
+		else
+			APP_VERSION=$((APP_VERSION+1))
+			APP_VERSION="${APP_VERSION_MAIN}.${APP_VERSION}"
+		fi
+		APP_RELEASE=1
+	else
+		APP_RELEASE=$((APP_RELEASE+1))
+	fi
+
+fi
+
+APP_VER=$(echo "${APP_VERSION}" | cut -d'.' -f2)
+
+# если задан аргумент - номер релиза, то переписываем его в файл
+if [ -n "${1}" ] ; then
+  ver="${1}"
+  APP_VERSION_MAIN=$(echo "${ver}" | cut -d'.' -f1)
+  APP_VER=$(echo "${ver}" | cut -d'.' -f2)
+  APP_RELEASE=$(echo "${ver}" | cut -d'.' -f3)
+  APP_VERSION_STAGE=$(echo "${ver}" | cut -d'.' -f4)
+  if [ "${APP_VERSION_STAGE}" == 'b' ]; then APP_VERSION_STAGE='beta'; fi
+fi
+echo "${APP_RELEASE}" > "${APP_TOOLS_RELEASE_FILE}"
+
+echo "---------------------------------------------"
+echo "Пакет : ${APP_NAME}"
+echo "Версия: ${APP_VERSION_MAIN}.${APP_VER} ${APP_VERSION_STAGE} ${APP_RELEASE}"
+echo "---------------------------------------------"
+echo "${APP_VERSION}" > "${APP_TOOLS_VERSION_FILE}"
+
+
+APP_VER_FULL="${APP_VERSION_MAIN}.${APP_VER}-${APP_VERSION_STAGE}_${APP_RELEASE}"
+APP_VER_FULL_TEXT="${APP_VERSION_MAIN}.${APP_VER} ${APP_VERSION_STAGE} ${APP_RELEASE}"
+
+DATA_PATH_END="setup/data.py"
+sed -i 's/^TOKEN.=.*/TOKEN = ""/g' "${APP_TOOLS_PATH}/files/${DATA_PATH_END}"
+sed -i 's/^VERSION.=.*/VERSION = "'"${APP_VER_FULL_TEXT}"'"/g' "${APP_TOOLS_PATH}/files/${DATA_PATH_END}"
+sed -i 's/^VERSION.=.*/VERSION = "'"${APP_VER_FULL_TEXT}"'"/g' "${APP_ROOT}/${DATA_PATH_END}"
+
+
+LINE='--------------------------------------------------------------------------'
+# создаем список всех питоновских файлов в папке проекта
+# shellcheck disable=SC2010
+cd ${APP_BUILD_FILES_PATH} || exit
+APP_DIR_LIST=$(ls -d */ | cut -d"/" -f1 | grep -vE '(__pycache__|debug)' | tr -t '\n' ',')
+APP_DIR_LIST="{${APP_DIR_LIST::-1}}"
+cd "${ROOT_TOOLS}" || exit
+
+#echo $APP_DIR_LIST
+
+cat <<EOF > "${APP_TOOLS_PATH}/Makefile"
+include \$(TOPDIR)/rules.mk
+
+PKG_NAME:=${APP_NAME}
+PKG_VERSION:=${APP_VER_FULL}
+PKG_RELEASE:=
+PKG_BUILD_DIR:=\$(BUILD_DIR)/\$(PKG_NAME)
+
+include \$(INCLUDE_DIR)/package.mk
+
+# Прописываем данные по зависимостям (эти пакеты будут пересобираться во время сборки  нашего приложения)
+# категория keendev это раздел в menuconfig в котором располагаем наш срипт
+define Package/${APP_NAME}
+	SECTION:=utils
+	CATEGORY:=keendev
+	DEPENDS:=+curl +knot-dig +cron +python3 +python3-pip
+	URL:=no
+	TITLE:=Телеграм-бот для обработки запросов по внесению хостов в белый список VPN соединения.
+	PKGARCH:=${APP_ARCH}
+endef
+
+define Package/${APP_NAME}/description
+	Телеграм-бот для обработки запросов по внесению хостов в белый список VPN соединения.
+	Для корректной работы необходимо сначала создать группу в Телеграме и при установке
+	программы ввести полученный ранее в Телеграмме токен и user_id администратора бота.
+endef
+
+define Build/Prepare
+endef
+define Build/Configure
+endef
+define Build/Compile
+endef
+
+# Во время инсталляции задаем папку в которую будем
+# копировать наш скрипт и затем копируем его в эту папку
+define Package/${APP_NAME}/install
+
+	\$(INSTALL_DIR) \$(1)/opt/apps/${APP_NAME}
+	\$(INSTALL_DIR) \$(1)/opt/apps/${APP_DIR_LIST}
+	\$(CP) ./files/${APP_DIR_LIST} \$(1)/opt/apps/${APP_NAME}/
+	\$(INSTALL_BIN) ./files/{${APP_NAME}.py,${DEMON_NAME}.py} \$(1)/opt/apps/${APP_NAME}
+
+	\$(INSTALL_DIR) \$(1)/opt/etc/${APP_NAME}/${BACKUP_DIR}
+#	\$(INSTALL_DATA) ./files/${APP_NAME}.conf \$(1)/opt/etc/${APP_NAME}
+
+	\$(INSTALL_DIR) \$(1)${APP_INITD_DEST_PATH}
+	\$(INSTALL_BIN) ./files${APP_INITD_DEST_PATH}/${APP_INITD_NAME} \$(1)${APP_INITD_DEST_PATH}/${APP_INITD_NAME}
+
+endef
+
+# Скрипт создаем, который выполняется после инсталляции пакета
+# Задаем в кроне время обновления ip адресов хостов
+define Package/${APP_NAME}/postinst
+#!/bin/sh
+
+echo "${LINE}"
+echo "Установка пакета ЖЕЗЛ™ [Zezl™] версия ${APP_VER_FULL}..."
+echo "${LINE}"
+
+token_conf=$\$(cat < "/opt/etc/${APP_NAME}/${APP_NAME}.conf" | grep 'TOKEN=' | cut -d'=' -f2)
+user_id_conf=$\$(cat < "/opt/etc/${APP_NAME}/${APP_NAME}.conf" | grep 'USER_ID=' | cut -d'=' -f2)
+touch "/opt/etc/${APP_NAME}/${APP_NAME}.conf"
+
+if [[ -z "$\$token_conf" ]] || [[ -z "$\$user_id_conf" ]]; then
+	if [ -z "$\$token_conf" ]; then
+		echo "Для полноценной работы пакета необходимо создать своего бота в 'Телеграм'"
+		echo "и получить ключ-токен. Видео-инструкцию Вы можете найти по ссылке ниже: "
+		echo "https://youtu.be/KAgvPrvlI7Q"
+		echo "${LINE}"
+		while true; do
+			echo "Для продолжения работы, ведите token Вашего бота: "
+			read -r token
+			if [[ -z "$\$token"  ]] || [[ -z "$\$(echo $\$token | grep  -E '^[0-9]{10}:[\_A-Za-z0-9\-]{35}')" ]]; then
+				echo "${LINE}"
+				echo "Введенная последовательность символов НЕ верна!"
+				echo "token должен содержать 10 цифр + двоеточие и затем еще 35 символов."
+			    echo "Попробуйте ввести его снова..."
+			else
+			  #	сохраняем token в файле конфигурации
+			  sed -i '/TOKEN/d' "/opt/etc/${APP_NAME}/${APP_NAME}.conf"
+			  echo "TOKEN=$\$token" >> "/opt/etc/${APP_NAME}/${APP_NAME}.conf"
+			  break
+		  fi
+		done
+	fi
+	if [[ -z "$\$user_id_conf" ]]; then
+		echo "${LINE}"
+		echo "В целях повышения безопасности работы бота необходимо ввести Ваши данные, "
+		echo "как администратора, от имени которого Вы будете управлять Вашим ботом."
+		echo "Для этого Вам необходимо выяснить Ваш user_id, см. инструкцию по ссылке ниже: "
+		echo "https://messenge.ru/kak-uznat-id-telegram/"
+		echo "${LINE}"
+		while true; do
+			echo "Для продолжения работы, ведите user_id Вашего бота: "
+			read -r user_id
+			if [[ -z "$\$user_id"  ]] || [[ -z "$\$(echo $\$user_id | grep  -E '^[[:digit:]]{6,10}$\$')" ]]; then
+				echo "${LINE}"
+				echo "Введены не верные данные, user_id должен содержать 9 цифр."
+			    echo "Попробуйте ввести его снова..."
+			else
+				#	сохраняем user_id в файле конфигурации
+			  sed -i '/USER_ID/d' "/opt/etc/${APP_NAME}/${APP_NAME}.conf"
+			  echo "USER_ID=$\$user_id" >> "/opt/etc/${APP_NAME}/${APP_NAME}.conf"
+			  break
+		  fi
+		done
+	fi
+else
+	echo "Обнаружен предыдущий файл конфигурации, данные берем из него..."
+fi
+
+if ! [ -f /opt/bin/pip ]; then
+  	echo "${LINE}"
+	echo "Устанавливаем пакет pip..."
+	opkg install python3-pip
+	echo "Обновляем пакет pip..."
+	pip install --upgrade pip setuptools
+fi
+
+if [ -z "$\$(find /opt/lib/python* | grep  'telegram/bot.py')" ]; then
+  	echo "${LINE}"
+	echo "Устанавливаем python-telegram-bot и связанные библиотеки..."
+	pip3 install python-telegram-bot httplib2 bs4
+fi
+
+echo "${LINE}"
+echo "Устанавливаем скрипт ${DEMON_NAME} для работы из командной строки..."
+ln -fs /opt/apps/${APP_NAME}/${DEMON_NAME}.py /opt/bin/${DEMON_NAME}
+echo "Ставим обновление ip адресов по умолчанию - каждые 12 часов."
+sed -i /${DEMON_NAME}/d /opt/etc/crontab
+echo '0 */12 * * * root /opt/bin/${DEMON_NAME} ' >> /opt/etc/crontab
+
+
+if [ "$\$token_conf" ]; then
+  	echo "${LINE}"
+	echo "Запускаем ${APP_NAME}..."
+	echo "${LINE}"
+#	kill -9 "$\$(ps | grep ${APP_NAME} | head -1 | cut -d' ' -f1)" 2>/dev/null
+
+	# запуск в рабочем варианте
+  	/opt/etc/init.d/${APP_INITD_NAME} restart
+  	/opt/etc/init.d/${APP_INITD_NAME} status
+
+	# запуск в режиме отладки
+	# /opt/apps/${APP_NAME}/${APP_NAME}.py
+
+	echo "${LINE}"
+	echo 'Для начала работы необходимо перейти в Телеграм и открыть диалог '
+	echo 'с созданным Вами ботом, а затем набрать команду /start'
+
+fi
+echo "${LINE}"
+
+endef
+
+# Создаем скрипт, который выполняется при удалении пакета
+# Удаляем из крона запись об обновлении ip адресов
+
+define Package/${APP_NAME}/postrm
+#!/bin/sh
+
+echo "${LINE}"
+echo "Удаление пакета ЖЕЗЛ™ [Zezl™] версия ${APP_VER_FULL}..."
+echo "${LINE}"
+
+while true; do
+	echo "Удалить файлы конфигурации пакета [Y/N]? "
+	read -r ynq
+	case $\${ynq} in
+		[Yy]* )
+			echo "Удаляем файлы конфигурации '${APP_NAME}'..."
+			rm -rf /opt/etc/${APP_NAME}
+			echo "${LINE}"
+			break;;
+		[Nn]* )
+			echo 'Файлы конфигурации, логи и архивы Вы сможете найти в папке /opt/etc/${APP_NAME}'
+			echo "${LINE}"
+			break;;
+		* ) echo "Пожалуйста ответьте на вопрос 'Y' - удалить или 'N' - оставить.";;
+	esac
+done
+
+while true; do
+	echo "Удалить python пакеты: telegram-bot [Y/N]? "
+	read -r yn
+	case $\${yn} in
+		[Yy]* )
+			echo "Удаляем зависимые python пакеты..."
+			echo "python-telegram-bot httplib2 pyparsing bs4"
+			pip uninstall python-telegram-bot httplib2 pyparsing bs4
+			echo "${LINE}"
+			break;;
+		[Nn]* ) break;;
+		* ) echo "Пожалуйста ответьте на вопрос 'Y' - удалить или 'N' - оставить.";;
+	esac
+done
+
+
+if [ -f /opt/etc/init.d/${APP_INITD_NAME} ]; then
+	if [ -n "$\$(/opt/etc/init.d/${APP_INITD_NAME} status | grep 'alive')" ]; then
+		echo "Останавливаем '${APP_NAME}' дозор..."
+		echo "${LINE}"
+		/opt/etc/init.d/${APP_INITD_NAME} stop
+		kill -9 "$(ps | grep ${APP_NAME} | head -1 | cut -d" " -f1)" 2>/dev/null
+		/opt/etc/init.d/${APP_INITD_NAME} status
+		echo "${LINE}"
+	fi
+#	echo "Удаляем '${APP_NAME}' дозор из автозагрузки..."
+#	rm -f /opt/etc/init.d/${APP_INITD_NAME}
+fi
+
+#echo "Удаляем файлы пакета '${APP_NAME}'..."
+#rm -rf /opt/apps/${APP_NAME}
+
+echo "Удаляем данные из cron..."
+sed -i '/${DEMON_NAME}/d' /opt/etc/crontab
+#rm -f /opt/bin/${DEMON_NAME}
+touch /opt/etc/${APP_NAME}/${APP_NAME}.log
+
+echo "${LINE}"
+
+endef
+
+\$(eval \$(call BuildPackage,${APP_NAME}))
+EOF
+
+export FORCE_UNSAFE_CONFIGURE=1
+
+# 	Необходимо отметить в категории keendev следующие разделы
+#   название нашего скрипта и обязательны для включения: opt-ndmsv2, ndmq, libndm
+if [[ "${2}" = '1' ]] || [[ "${2}" = '0' ]]; then
+#	первоначальная компиляция - исключительно на одном процессоре
+#	из-за ошибок при параллельной обработке библиотек
+	if ! [ -f "/opt/apps/zezl/Entware/scripts/config/.config" ]; then
+		make menuconfig
+	fi
+	make -j1 # "$(nproc)"
+	make libraries/install #-j "$(nproc)"
+	make toolchain/install #-j "$(nproc)"
+	make package/${APP_NAME}/compile #-j "$(nproc)"
+fi
+if [ "${2}" -eq 2 ]; then
+#	компиляция после первоначальной сборки кода (можно вести параллельно)
+	make libraries/install V=sc #-j "$(nproc)"
+	make toolchain/install -j "$(nproc)"
+	make package/${APP_NAME}/compile -j "$(nproc)"
+fi
+#make libraries/install #V=sc
+#make toolchain/install #V=sc
+#make package/${APP_NAME}/compile V=sc || exit
+#make package/${APP_NAME}/compile -j4 #-j "$(nproc)"
+
+#make package/${APP_NAME}/install
+#make package/index
+
+
+APP_PKG_TAR_NAME=${APP_NAME}_${APP_VER_FULL}_${APP_ARCH}.ipk
+APP_PKG_FILE="${ROOT_TOOLS}/bin/targets/mipsel-3.4/generic-glibc/packages/${APP_PKG_TAR_NAME}"
+mkdir -p ${ROOT_TOOLS}/backup/
+cp "${APP_PKG_FILE}" "/opt/apps/${APP_NAME}/backup"
+#apt-get install sshpass
+sshpass -p "${MY_PASS}" scp -P 6633 "${APP_PKG_FILE}" root@router:/opt/packages/${APP_NAME}
+sshpass -p "${MY_PASS}" ssh -p 6633 root@router 'opkg remove '${APP_NAME}
+sshpass -p "${MY_PASS}" ssh -p 6633 root@router 'rm -rf /opt/apps/'${APP_NAME}
+sshpass -p "${MY_PASS}" ssh -p 6633 root@router 'opkg install /opt/packages/'${APP_NAME}/${APP_PKG_TAR_NAME}
+#sshpass -p "${MY_PASS}" ssh -p 6633 root@router 'opkg files '${APP_NAME} ' && ls /opt/apps/'${APP_NAME}/

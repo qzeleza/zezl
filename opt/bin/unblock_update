@@ -1,0 +1,14 @@
+#!/bin/sh
+#
+#
+# Copyright (c) 2022.
+#
+# Автор: mail@zeleza 04.2022
+# Вся сила в правде!
+#
+#
+
+ipset flush unblock
+/opt/bin/unblock_dnsmasq
+/opt/etc/init.d/S56dnsmasq restart
+/opt/bin/unblock_ipset &
