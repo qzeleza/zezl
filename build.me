@@ -18,8 +18,7 @@ APP_RELEASE=1
 APP_ARCH=all
 APP_INITD_NAME="S61${APP_NAME}"
 BACKUP_DIR=backups
-MY_PASS="DRC-9887-DEV"
-PORT=3312
+
 
 APP_ROOT=/opt/apps/${APP_NAME}/${APP_NAME}
 APP_SRC_PATH=${APP_ROOT}
@@ -369,8 +368,3 @@ APP_PKG_FILE="${ROOT_TOOLS}/bin/targets/mipsel-3.4/generic-glibc/packages/${APP_
 mkdir -p ${ROOT_TOOLS}/backup/
 cp "${APP_PKG_FILE}" "/opt/apps/${APP_NAME}/backup"
 #apt-get install sshpass
-sshpass -p "${MY_PASS}" scp -P "${PORT}" "${APP_PKG_FILE}" root@router:/opt/packages/${APP_NAME}
-sshpass -p "${MY_PASS}" ssh -p "${PORT}" root@router 'opkg remove '${APP_NAME}
-sshpass -p "${MY_PASS}" ssh -p "${PORT}" root@router 'rm -rf /opt/apps/'${APP_NAME}
-sshpass -p "${MY_PASS}" ssh -p "${PORT}" root@router 'opkg install /opt/packages/'${APP_NAME}/${APP_PKG_TAR_NAME}
-#sshpass -p "${MY_PASS}" ssh -p 6633 root@router 'opkg files '${APP_NAME} ' && ls /opt/apps/'${APP_NAME}/
