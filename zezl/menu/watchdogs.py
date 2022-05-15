@@ -1,5 +1,5 @@
 # coding=utf-8
-
+from datetime import datetime
 from typing import Callable
 
 from telegram import Update
@@ -19,7 +19,8 @@ from libraries.watchdogs.jobs import (
 )
 from libraries.watchdogs.news import get_page_data_list, save_link_data, remove_all_links_from_file, get_data_page, \
     wdog_news_run, remove_link_from_file, update_link_data
-from setup.data import LINE
+from libraries.main.dialog import exit_from_text_mode
+from setup.data import LINE, WDOG_SAVE_FORMAT, UPDATE_DATE_FORMAT
 from setup.description import (etag, rtag, icon, SearchEngines, bs, be)
 from setup.menu import Menu
 
@@ -78,21 +79,22 @@ class WatchdogsMenuAction:
         base_class = Menu.WatchdogsMenu.ErrorsMenu
 
         # Проверяем активирован ли режим опроса системных ошибок
-        mode = context.user_data.get(etag.error_state)
+        mode = context.user_data.get(etag.error_state).lower() == etag.true
         # при запуске, по умолчанию, он всегда включен
-        mode = True if mode is None else mode
+        fstate = cfg.get_config_value(name=etag.error_state).lower() == etag.true
+        mode = fstate if fstate else True if mode is None else mode
         # Проверяем установлен ли интервал таймера проверки опроса системных ошибок
         interval = get_value(etag.error_interval, 3, context)
         # Получаем поисковую машину для генерации строки поиска ошибки
         engine = get_value(etag.error_engine, SearchEngines.yandex, context)
         # переключаемся только в случае смены режимов
-        if mode != cfg.get_config_value(name=etag.error_state):
+        if mode != fstate:
             # переключаем режим в зависимости от записанного значения в файле или переменной
             self.sys_errors_state_toggle(state=mode, interval=interval, update=update, context=context)
 
         # формируем заголовок страницы
         state = rtag.StatusOn if mode else rtag.StatusOff
-        title = base_class.TitleList.replace('@1', state).replace('@2', interval).replace('@3', engine)
+        title = base_class.TitleList.replace('@1', state).replace('@2', str(interval)).replace('@3', engine)
 
         # кнопка активации режима
         activation_button = {f"{icon.unselect} {rtag.ActivationOff} ": st.WD_ERR_ACTIVATION} \
@@ -374,12 +376,18 @@ class WatchdogsMenuAction:
     #   Добавляем название ссылки
     # --------------------------------------------------------------------------------------------------
     # @set_menu_level(menu_level=st.WD_SITES_ADD_LEVEL)
+
     def news_add_link_request(self, update: Update, context: CallbackContext) -> int:
         """
         Функция добавляет название последующей ссылки
         :param update:
         :param context:
         """
+        #  если ввели слова по выходу из режима ввода
+        callback = exit_from_text_mode(update.message.text, self.news_show, update, context)
+        if callback:
+            return callback
+
         context.user_data[etag.link_name] = update.message.text.capitalize()
         # запрос на добавление домена
         reply_text = Menu.WatchdogsMenu.SitesMenu.AddLinkMenu.AddLinkRequestText
@@ -400,6 +408,11 @@ class WatchdogsMenuAction:
         :param context:
         :return:
         """
+        #  если ввели слова по выходу из режима ввода
+        callback = exit_from_text_mode(update.message.text, self.news_show, update, context)
+        if callback:
+            return callback
+
         entered_text = update.message.text.lower()
         link = check_url(entered_text)
         if link:
@@ -418,7 +431,7 @@ class WatchdogsMenuAction:
             answer = f"{bs}Данные введены не верно \n" \
                      f"или ссылка не существует!{be}\n" \
                      "Введите ссылку повторно"
-            alert(text=answer, update=update, context=context, in_cmd_line=True)
+            alert(mess=answer, update=update, context=context, in_cmd_line=True)
             result = st.WD_SITES_WATCH_LEVEL
 
         return result
@@ -476,18 +489,26 @@ class WatchdogsMenuAction:
         state = context.user_data.get(etag.site_state)
         # получаем выбранную ссылку
         chosen_link = update.callback_query.data
+        chosen_link = chosen_link if etag.http in chosen_link else context.user_data[etag.site_link]
+
+        site = get_data_page(link=chosen_link)
         # при запуске, по умолчанию, он всегда False
-        if state is None:
-            site = get_data_page(link=chosen_link)
-            context.user_data[etag.site_state] = site[etag.state]
-            context.user_data[etag.site_interval] = site[etag.period]
-            context.user_data[etag.site_link] = chosen_link
-            interval = context.user_data[etag.site_interval]
-        else:
-            # Проверяем установлен ли интервал таймера проверки опроса системных ошибок
-            state = context.user_data[etag.site_state]
-            interval = context.user_data[etag.site_interval]
-            chosen_link = context.user_data[etag.site_link]
+        state = True if state is None else state
+
+        context.user_data[etag.site_state] = site[etag.state]
+        context.user_data[etag.site_name] = site[etag.link_name]
+        context.user_data[etag.site_interval] = site[etag.period]
+        context.user_data[etag.site_link] = chosen_link
+        context.user_data[etag.update_date] = site[etag.update_date]
+        context.user_data[etag.check_date] = site[etag.check_date]
+
+
+        interval = context.user_data[etag.site_interval]
+        link_name = context.user_data[etag.site_name]
+        last_update = datetime.strptime(context.user_data[etag.update_date], WDOG_SAVE_FORMAT)
+        last_update = last_update.strftime(UPDATE_DATE_FORMAT)
+        last_check = datetime.strptime(context.user_data[etag.check_date], WDOG_SAVE_FORMAT)
+        last_check = last_check.strftime(UPDATE_DATE_FORMAT)
 
         # переключаемся только в случае смены режимов
         if state != cfg.get_config_value(name=etag.site_state):
@@ -495,8 +516,10 @@ class WatchdogsMenuAction:
             self.news_state_toggle(state=state, interval=interval, update=update, context=context)
         # заголовок страницы
         state_text = rtag.StatusOn if state else rtag.StatusOff
-        title = base_class.Title.replace('@1', chosen_link).replace('@2', state_text).replace('@3', interval)
-        list_content = []
+        title = base_class.Title.replace('@1', link_name).replace('@2', chosen_link)
+        title = title.replace('@3', state_text).replace('@4', interval)
+        title = title.replace('@5', last_check).replace('@6', last_update)
+
         # кнопка активации режима
         activation_button = {f"{icon.unselect} {rtag.ActivationOff}": st.WD_SITE_EDIT_LINK_WATCH_ACTIVATION} \
             if state else {f"{icon.select} {rtag.ActivationOn}": st.WD_SITE_EDIT_LINK_WATCH_ACTIVATION}
@@ -504,7 +527,7 @@ class WatchdogsMenuAction:
         # отрисовываем страницу
         callback, self.message_id = show_list_core(message_id=self.message_id,
                                                    reply_text=title,
-                                                   list_content=list_content,
+                                                   list_content=[],
                                                    cmd_buttons=cmd_buttons,
                                                    back_buttons=base_class.BackButtons,
                                                    menu_level=st.WD_SITES_EDIT_LINK_LEVEL,
@@ -597,7 +620,8 @@ class WatchdogsMenuAction:
         # записываем значение в файл конфигурации
         state = context.user_data[etag.site_state]
         chosen_link = context.user_data[etag.site_link]
-        func_start_args = dict(link=chosen_link, state=state, period=chosen_key)
+        name = context.user_data[etag.site_name]
+        func_start_args = dict(name=name, link=chosen_link, state=state, period=chosen_key)
         # записываем значение в память
         context.user_data[etag.site_interval] = chosen_key
         return run_background(func_start=update_link_data,

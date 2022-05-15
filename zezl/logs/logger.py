@@ -26,12 +26,19 @@ logging.getLogger("apscheduler").propagate = False
 # file_log = logging.FileHandler(LOG_FILE)
 
 log_begin = "[%(levelname)s]" if ACCESS_REMOTE else "[%(asctime)s] [%(levelname)s] "
-log_format = f'{log_begin} zezl -> %(filename)s::%(funcName)s [%(lineno)d] - "%(message)s"'
+log_format = f'{log_begin} zl->%(filename)s::%(funcName)s[%(lineno)d] "%(message)s"'
 date_format = '%d-%m-%Y %H:%M:%S'
 
 
 def get_file_handler():
+    """
+    Логирвоание в файл
+
+    :return:
+    """
+    # размер в 1М
     size_Mb = 1024 * 1024 * 1
+    # три копии максимамум
     backup_count = 3
     file_handler = RotatingFileHandler(LOG_FILE, maxBytes=size_Mb, backupCount=backup_count)
     # file_handler = logging.FileHandler(LOG_FILE)
@@ -41,6 +48,11 @@ def get_file_handler():
 
 
 def get_stream_handler():
+    """
+    Логер для поточного информирования
+
+    :return:
+    """
     stream_handler = logging.StreamHandler()
     stream_handler.setFormatter(logging.Formatter(fmt=log_format, datefmt=date_format))
     # stream_handler.setLevel(logging.DEBUG)
@@ -48,6 +60,11 @@ def get_stream_handler():
 
 
 def get_logger(name):
+    """
+    Иницилизация лога
+    :param name:
+    :return:
+    """
     # удаляем предыдущие логи при перезапуске пакета
     cmd = f"rm -f {LOG_FILE}*"
     run(args=cmd, stdout=PIPE, text=True, shell=True)

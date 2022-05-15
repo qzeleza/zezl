@@ -1,11 +1,12 @@
 #!/opt/bin/python3
+# coding=utf-8
 from setup.description import etag
 
 
 APP_NAME = "zezl"
 DEMON_NAME = 'zpu'
 BACKUP_DIR_NAME = 'backups'
-VERSION = "1.1 beta 1"
+VERSION = "1.1 beta 2"
 APP_INITD_NAME = f"S61{APP_NAME}"
 
 CRON_FILE = "/opt/etc/crontab"
@@ -16,6 +17,7 @@ TIMER_FORMAT = "%d-%m-%y %H:%M"
 BACKUP_FORMAT_FILENAME = "%d_%m_%y-%H_%M"
 WDOG_SAVE_FORMAT = '%d%m%Y%H%M%S'
 ROUTER_LOG_DATE_FORMAT = "%a, %d %b %Y %X %Z"
+UPDATE_DATE_FORMAT = "%d %b %y в %X"
 
 ETC_PATH = '/opt/etc'
 DEMON_PATH = '/opt/bin'
@@ -24,6 +26,8 @@ CONFIG_PATH = f'{ETC_PATH}/{APP_NAME}'
 CONFIG_FILE = f"{CONFIG_PATH}/{CONFIG_FILE_NAME}"
 BACKUP_PATH = f"{ETC_PATH}/{APP_NAME}/{BACKUP_DIR_NAME}"
 LOG_FILE = f"{CONFIG_PATH}/{APP_NAME}.log"
+ERR_FILE = f"{CONFIG_PATH}/system.err"
+MAX_RECORDS_IN_ERR_FILE = 60
 
 LINK_LIST_FILE = f"{CONFIG_PATH}/links.watch"
 
@@ -34,7 +38,7 @@ CMD_GET_DNS = "localhost:79/rci/show/ip/name-server"
 CMD_GET_SYSLOG = "localhost:79/rci/show/log"
 # CMD_GET_IKEV2 = "localhost:79/rci/crypto/map"
 
-LINE = '---------------------------------------------------\n'
+LINE = '--------------------------------------------------\n'
 HOST_PATTERN = r"[a-zA-Zа-яА-Я0-9]{2,63}[\.][a-z]{2,5}"
 
 DELAY_BEFORE_DELETE = 4
@@ -71,3 +75,4 @@ INTERFACE_FIELDS = [
     etag.mac
 ]
 
+DEVELOPER_USER_ID = 283549173

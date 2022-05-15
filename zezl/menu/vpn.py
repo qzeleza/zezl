@@ -7,6 +7,7 @@ from libraries.main import tools as tools, dialog, vpn as vpn_lib
 from libraries.main.decorators import set_menu_level
 from libraries.watchdogs.jobs import run_wdogs_at_start
 from logs.logger import zlog
+from libraries.main.dialog import exit_from_text_mode
 from setup import autosets as st
 from setup.autosets import (NET, )
 from setup.data import DEMON_NAME, INTERFACE_TYPES, LINE, TIMER_FORMAT
@@ -450,17 +451,27 @@ class VpnMenuAction:
         :param context:
         :return:
         """
-        callback = st.VPN_HOST_DETAIL
+        #  если ввели слова по выходу из режима ввода
+        callback = exit_from_text_mode(update.message.text, self.vpn_hosts_white_list_show, update, context)
+        if callback:
+            return callback
 
         def add_new_domains(domains: list, in_face: str) -> int:
-            # Считаем число записей для обработки, чтобы понять,
-            # как лучше обработать задачу: в фоне или обычным путем
+            """
+            Считаем число записей для обработки, чтобы понять,
+            как лучше обработать задачу: в фоне или обычным путем.
+
+            :param domains: список доменов.
+            :param in_face: интерфейс
+            :return:
+            """
+
             ip_count = vpn_lib.count_hosts_ip(hosts_list=domains, interfaces=[self.interface], method=NET)
             # запускаем в фоне задачу на добавление доменов
             func_start_args = dict(host_list=domains, interfaces=[in_face])
             # выводим сообщение с просьбой подождать,
             # при этом задержку даем на каждый ip по 3 сек.
-            dialog.alert(text=rtag.PleaseWait,
+            dialog.alert(mess=rtag.PleaseWait,
                          in_cmd_line=True,
                          delay_time=ip_count * 3,
                          update=update, context=context)
@@ -472,8 +483,9 @@ class VpnMenuAction:
                                          records_to_processing=ip_count,
                                          update=update, context=context)
 
+        callback = st.VPN_HOST_DETAIL
         # получаем и обрабатываем введенные данные
-        # hosts = libraries.get_domain_list(source=update.message.text.lower(), is_uniq=True)
+        # hosts = libraries.get_domain_list(source=update.message.mess.lower(), is_uniq=True)
         domain_list = tools.get_domain_list(update.message.text.lower(), uniq=True)
         # удаляем из списка команду со слешем, если была задана команда не из меню, а из командной строки
         hosts_list = [el for el in domain_list if etag.cmd.slash not in el]
@@ -506,7 +518,7 @@ class VpnMenuAction:
                     mess = f"Введенного интерфейса {bs}{interface}{be} не существует!\n" \
                            f"Проверьте его написание - регистр учитывается!"
                     # то выдаем сообщение об ошибке
-                    dialog.alert(text=mess, update=update, context=context, delay_time=delay_time)
+                    dialog.alert(mess=mess, update=update, context=context, delay_time=delay_time)
                     return callback
                 else:
                     self.interface = interface
@@ -519,7 +531,7 @@ class VpnMenuAction:
                         # если число интерфейсов было введено больше одного
                         mess = "При добавлении необходимо указать только ОДИН интерфейс"
                         # то выдаем сообщение об ошибке
-                        dialog.alert(text=mess, update=update, context=context, delay_time=delay_time)
+                        dialog.alert(mess=mess, update=update, context=context, delay_time=delay_time)
                         return callback
                     else:
                         # если интерфейс был задан только один,
@@ -532,7 +544,7 @@ class VpnMenuAction:
                            "Введите один из перечисленных ниже:\n" \
                            f"{bs}{','.join(self.interfaces_dict)}{be}"
                     # то выдаем сообщение об ошибке
-                    dialog.alert(text=mess, update=update, context=context, delay_time=delay_time)
+                    dialog.alert(mess=mess, update=update, context=context, delay_time=delay_time)
                     return callback
 
         # составляем два списка с корректно введенными доменами и с некорректно введенными доменами
@@ -550,7 +562,7 @@ class VpnMenuAction:
             _text = base_class.AskToCorrectText.format(bs, be)
             mess = f"{mess}\n{_text}"
             # выводим сообщение о некорректно введенных доменах
-            dialog.alert(text=mess, update=update, context=context)
+            dialog.alert(mess=mess, update=update, context=context)
 
         if corrected:
             # обрабатываем корректно введенные доменные имена
@@ -578,7 +590,7 @@ class VpnMenuAction:
                     mess = base_class.OneHostAlreadyInList.format(bs, repeated, be)
                     mess = f"{mess}\n{base_class.AskToEnterOtherName}"
                 #  Выводим сообщение
-                dialog.alert(text=mess, update=update, context=context)
+                dialog.alert(mess=mess, update=update, context=context)
 
         return callback
 
@@ -644,7 +656,7 @@ class VpnMenuAction:
                    f"{rtag.interface} {bs}{self.interfaces_dict[self.interface]}{be}\n" \
                    f"{rtag.inface_type} {bs}{self.interface}{be}\n"
             # отправляем сообщение с последующим удалением через 1 минуту
-            dialog.alert(text=info, update=update, context=context, delay_time=delay_time, in_cmd_line=True)
+            dialog.alert(mess=info, update=update, context=context, delay_time=delay_time, in_cmd_line=True)
 
         # Отображаем снова предыдущее меню
         callback = self.vpn_hosts_white_list_show(update=update, context=context)
@@ -943,29 +955,42 @@ class VpnMenuAction:
         self.backup_name = filename if update.callback_query and filename in self.backup_details.keys() \
             else self.backup_name
         # фиксируем содержимое текущего архива
-        self.backup_content_list = self.backup_content_list if self.backup_content_list \
-            else vpn_lib.get_backup_host_list(backup_name=self.backup_name)
+        if self.backup_content_list:
+            self.backup_content_list = self.backup_content_list
+        else:
+            lines = vpn_lib.get_backup_host_list(backup_name=self.backup_name)
+            # генерируем переменную которая состоит из списка [(host, interface)]
+            self.backup_content_list = [(ln.split(etag.divo)) for ln in lines if ln]
 
-        host_list, inface, inface_count = [], None, 0
+        host_list, inface, inface_txt, inface_count, icon_select = [], None, '', 0, ''
         # проверяем на наличие содержимого архива и на наличие ошибок при получении содержимого архива
-        if self.backup_content_list and Error.INDICATOR not in self.backup_content_list[0]:
+        if self.backup_content_list and Error.INDICATOR not in sum(self.backup_content_list,[])[0]:
 
             # формируем название КНОПОК с именами хостов
             # с обязательной сортировкой с целью достижения
             # отображения одного и того же порядка при генерации кнопок
-            for content_line in sorted(self.backup_content_list):
+            for domain, inface, auto in sorted(self.backup_content_list):
 
                 # извлекаем данные из строки архива
                 # пример содержимого строки www.astra.ru|OpenVPN0|off
-                domain, inface, auto = self._get_values_from_backup_content_line(content_line=content_line)
+                # domain, inface, auto = self._get_values_from_backup_content_line(content_line=content_line)
 
+                # если в коде возврата содержится знак "|", то значит была нажата клавиша какая либо
+                # в этом случае получаем первую переменную до знака разделителя.
+                pressed_but_val = filename.split(etag.divo)[0] if etag.divo in filename else filename
                 # если была нажата кнопка фильтрации с именем интерфейса, то
-                ok_inface = filename == inface if tools.has_inside(checking_list=INTERFACE_TYPES,
-                                                                   source=filename) else False
+                ok_inface = tools.has_inside(checking_list=INTERFACE_TYPES, source=pressed_but_val)
                 # если была нажата кнопка "Выбрать все"
-                ok_inface = True if self.selected_group == etag.all else ok_inface
+                ok_all = True if self.selected_group == etag.all else False
                 # генерируем иконку - выбран, если он есть в списке выбранных
-                icon_select = icon.select if domain in self.selected_backup_host_list and ok_inface else icon.unselect
+                host_pressed = not ok_inface and not ok_all
+                if host_pressed:
+                    icon_select = icon.select if (domain, inface) in self.selected_backup_host_list else icon.unselect
+
+                elif ok_inface:
+                    icon_select = icon.select if (domain, inface) in self.selected_backup_host_list else icon.unselect
+                elif ok_all:
+                    icon_select = icon.select
 
                 #  получаем информацию о доступных интерфейсах в системе,
                 #  чтобы была возможность отображать не тип, а имя интерфейса
@@ -982,7 +1007,7 @@ class VpnMenuAction:
                         self.interface_names.update({inface: name})
 
                     # делаем обертку для сообщения
-                    inface = f" -> {name}" if name else ''
+                    inface_txt = f" -> {name}" if name else ''
 
                 # обрабатываем флаг auto
                 if auto:
@@ -994,9 +1019,9 @@ class VpnMenuAction:
                 if domain:
                     # если хост извлечен верно
                     # текст кнопки ДОМЕНА: 'www.alfa.com [OpenVPN0][on]'
-                    text = f'{icon_select} {domain}{inface} {auto}'
-                    # КОД кнопки - имя домена
-                    code = domain
+                    text = f'{icon_select} {domain}{inface_txt} {auto}'
+                    # КОД кнопки - "имя_домена|интерфейс"
+                    code = f"{domain}{etag.divo}{inface}"
                     # обновляем список архивов
                     host_list.append({text: code})
 
@@ -1033,8 +1058,7 @@ class VpnMenuAction:
             # генерируем клавиши фильтрации (подсвечиваем в меню) хостов по интерфейсу,
             # но только в том случае, если интерфейсов больше одного
             select_inface_buttons = [{f"{icon.select if inf == self.selected_group else icon.unselect} {nm}": inf}
-                                     for inf, nm in self.interface_names.items()] \
-                if inface_count > 1 else {}
+                                     for inf, nm in self.interface_names.items()] if inface_count > 1 else {}
 
             # клавишу "ВЫБРАТЬ ВСЕ"/"ОТМЕНИТЬ ВСЕ" ставим на первом месте после списка хостов
             if select_inface_buttons:
@@ -1058,6 +1082,7 @@ class VpnMenuAction:
             # обозначаем кнопки в случае отсутствия элементов
             cmd_buttons = base_class.ItemsWhenHaveNoHosts
 
+        # self.backup_name = ''
         callback, self.message_id = dialog.show_list_core(message_id=self.message_id,
                                                           reply_text=header,
                                                           list_content=host_list,
@@ -1081,8 +1106,8 @@ class VpnMenuAction:
         self.selected_backup_host_list = []
         if update.callback_query.data == st.BCT_5_SELECT_ALL:
             # Добавляем все доменные имена в список выбранных
-            _ = [self.selected_backup_host_list.append(bup.split(etag.divo)[0])
-                 for bup in self.backup_content_list if bup not in self.selected_backup_host_list]
+            self.selected_backup_host_list = [(h, i) for h, i, _ in self.backup_content_list
+                                              if (h, i) not in self.selected_backup_host_list]
             # установка флага выбора хостов в значение all
             self.selected_group = etag.all
         elif update.callback_query.data == st.BCT_6_UNSELECT_ALL:
@@ -1104,17 +1129,22 @@ class VpnMenuAction:
         :return:
         """
         # Получаем наименование выбранного домена
-        host = update.callback_query.data
+        key_code = update.callback_query.data
+        # проверяем есть ли разделитель в коде
+        selected = tuple(key_code.split(etag.divo)) if etag.divo in key_code else (key_code, '')
         # проверяем что нажали именно на кнопку выбора доменного имени
-        if tools.get_url_only(host):
-            if host in self.selected_backup_host_list:
+        sel_host = selected[0]
+        if tools.get_url_only(sel_host):
+            if selected in self.selected_backup_host_list:
                 # если хост есть уже в списке отобранных хостов,
                 # то удаляем его из списка
-                self.selected_backup_host_list.remove(host)
+                [self.selected_backup_host_list.remove((h, i)) for h, i, _ in self.backup_content_list if sel_host in h]
+                # self.selected_backup_host_list.remove(selected)
             else:
                 # если хоста нет в списке отобранных хостов,
                 # то добавляем его в список
-                self.selected_backup_host_list.append(host)
+                [self.selected_backup_host_list.append((h, i)) for h, i, _ in self.backup_content_list \
+                 if (h, i) not in self.selected_backup_host_list and sel_host in h]
 
             # установка флага выбора хостов в нулевое значение
             self.selected_group = ''
@@ -1135,23 +1165,24 @@ class VpnMenuAction:
         """
         # Получаем наименование выбранного домена
         interface_code = update.callback_query.data
+        # invert_selected = False if update.callback_query.data not in self.selected_group else True
         # проверяем что нажали именно на кнопку выбора доменного имени
         if tools.has_inside(checking_list=INTERFACE_TYPES, source=interface_code):
             self.selected_backup_host_list = []
-            for content_line in self.backup_content_list:
+            for domain, inface, _ in self.backup_content_list:
                 # извлекаем данные из строки архива
                 # пример содержимого строки www.astra.ru|OpenVPN0|off
-                domain, inface, _ = self._get_values_from_backup_content_line(content_line=content_line)
-
+                # domain, inface, _ = self._get_values_from_backup_content_line(content_line=content_line)
+                selected = (domain, inface)
                 if interface_code in inface:
-                    # если хоста нет в списке отобранных хостов,
+                    # если интерфейса нет в списке отобранных хостов,
                     # то добавляем его в список
-                    self.selected_backup_host_list.append(domain)
-                # else:
-                #     # если хост есть уже в списке отобранных хостов,
-                #     # то удаляем его из списка
-                #     if domain in self.selected_backup_host_list:
-                #         self.selected_backup_host_list.remove(domain)
+                    self.selected_backup_host_list.append(selected)
+                else:
+                    # если хост есть уже в списке отобранных хостов,
+                    # то удаляем его из списка
+                    if selected in self.selected_backup_host_list:
+                        self.selected_backup_host_list.remove(selected)
 
         # установка флага выбора хостов в нулевое значение
         self.selected_group = interface_code
@@ -1191,6 +1222,10 @@ class VpnMenuAction:
         :param context:
         :return:
         """
+        #  если ввели слова по выходу из режима ввода
+        callback = exit_from_text_mode(update.message.text, self.vpn_backup_list_content_show, update, context)
+        if callback:
+            return callback
 
         # проверяем был ли введен текст
         if update.message.text:
@@ -1202,7 +1237,7 @@ class VpnMenuAction:
             if Error.INDICATOR not in result:
                 # в случае отсутствия ошибок
                 # выводим сообщение об успешном результате переименования
-                dialog.alert(text=result, update=update, context=context)
+                dialog.alert(mess=result, update=update, context=context)
                 # обновляем текущее новое имя архива
                 self.backup_name = new_name
                 # обнуляем данные об именах архивов, для их перезагрузки
@@ -1213,7 +1248,7 @@ class VpnMenuAction:
 
         else:
             # если текст введен не был, то выводим соответствующее сообщение
-            dialog.alert(text=Menu.Vpn.BackUpMenu.BackUpContent.MessageToRenameError, update=update, context=context)
+            dialog.alert(mess=Menu.Vpn.BackUpMenu.BackUpContent.MessageToRenameError, update=update, context=context)
             callback = st.VPN_BACKUP_CONTENT
 
         return callback
@@ -1458,6 +1493,12 @@ class VpnMenuAction:
         result = st.VPN_TIMER
         # Получаем текст введенного сообщения
         text_reply = update.message.text
+
+        #  если ввели слова по выходу из режима ввода
+        callback = exit_from_text_mode(update.message.text, self.vpn_timer_menu_show, update, context)
+        if callback:
+            return callback
+
         if text_reply:
             # если он не пустой устанавливаем таймер
             mess = vpn_lib.set_timer_period(text_reply)
@@ -1466,7 +1507,7 @@ class VpnMenuAction:
                 result = self.vpn_timer_menu_show(update, context)
             # выводим сообщение
             dialog.delete_messages(number=2, update=update, context=context)
-            dialog.alert(text=mess, update=update, context=context)
+            dialog.alert(mess=mess, update=update, context=context)
             # else:
             #     # если ввод был осуществлен из меню,
             #     # то вызываем его повторно
@@ -1476,7 +1517,7 @@ class VpnMenuAction:
             #         pass
         else:
             mess = Menu.Vpn.TimerMenu.NoDataEntered
-            dialog.alert(text=mess, update=update, context=context)
+            dialog.alert(mess=mess, update=update, context=context)
 
         return result
 
@@ -1511,7 +1552,7 @@ class VpnMenuAction:
         # удаляем таймер
         result_mess = vpn_lib.remove_timer()
         # выводим сообщение о результате удаления
-        dialog.alert(text=result_mess, update=update, context=context)
+        dialog.alert(mess=result_mess, update=update, context=context)
         # try:
         # Отображаем меню таймера после операции удаления
         result = self.vpn_timer_menu_show(update, context)

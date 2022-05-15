@@ -32,6 +32,24 @@ from setup.data import (
 from setup.description import ErrorTextMessage as Error
 
 
+def exit_from_text_mode(text: str, callback_func: Callable, update: Update, context: CallbackContext) -> int | None:
+    """
+    Функция проверяет на наличие слов-команд exit и quit
+
+    :param text: текст для проверки
+    :param callback_func: команду которую необходимо вызвать при наличии слов-команд exit и quit
+    :param update:
+    :param context:
+    :return:
+    """
+    #  если ввели слова по выходу из режима ввода
+    res = None
+    if text.lower() in [etag.exit, etag.quit]:
+        update.message.delete()
+        res = callback_func(update, context)
+    return res
+
+
 def get_value(name: str, default: str | bool | int, context: CallbackContext) -> str | bool:
     """
     Функция последовательно старается получить данные из
@@ -57,6 +75,7 @@ def get_value(name: str, default: str | bool | int, context: CallbackContext) ->
         context.user_data[name] = value
 
     return value
+
 
 # def get_button_dict(button_names: str | list) -> list:
 #     """
@@ -93,10 +112,10 @@ def get_value(name: str, default: str | bool | int, context: CallbackContext) ->
 #     # Выводим в консоль сообщение об ошибке
 #     if update:
 #         button = update.callback_query.data if update.callback_query else update.message.chat_id
-#         text = update.callback_query.message.text if update.callback_query else update.message.text
+#         mess = update.callback_query.message.mess if update.callback_query else update.message.mess
 #         zlog.error(f'{Error.INDICATOR} При обновлении данных: \n"{context.error}"\n'
 #                    f'Ошибка возникла при нажатии на кнопку: "{button}"\n'
-#                    f'Сообщение: "{text}"')
+#                    f'Сообщение: "{mess}"')
 
 
 def list_chunk(elem_list: list, buttons_in_row: int):
@@ -203,7 +222,7 @@ def dialog_to_accept(reply_text: str, buttons: list, update: Update) -> int:
                                                    timeout=DELAY_BEFORE_DELETE).message_id
 
 
-def alert(text: str, update: Update, context: CallbackContext,
+def alert(mess: str, update: Update, context: CallbackContext,
           popup: bool = False, in_cmd_line: bool = False, has_remove: bool = True,
           delay_time: int = DELAY_BEFORE_DELETE,
           url_button_name: str = None, url_button_link: str = None) -> int:
@@ -212,7 +231,7 @@ def alert(text: str, update: Update, context: CallbackContext,
 
     :param in_cmd_line: если True - отправка в режиме командной строки,
                         а не в виде всплывающей подсказки.
-    :param text: текст выводимый на экран, можно использовать HTML теги,
+    :param mess: текст выводимый на экран, можно использовать HTML теги,
            только в случае, если это НЕ callback_query окно.
     :param update: обновленные данные по чату.
     :param context: текущий контекст сообщения.
@@ -243,24 +262,24 @@ def alert(text: str, update: Update, context: CallbackContext,
     if in_cmd_line:
         # если установлен флаг вывода в командную строку,
         # то публикуем сообщение именно в этом режиме
-        # '{"inline_keyboard":[[{"text":"'"$name"'","url":"'"$url"'"}]]}'
+        # '{"inline_keyboard":[[{"mess":"'"$name"'","url":"'"$url"'"}]]}'
         if url_button_name and url_button_link:
             reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton(text=url_button_name, url=url_button_link)]])
-            # reply_markup = f'{{"inline_keyboard":[[{{"text":"{url_button_name}","url":"{url_button_link}"}}]]}}'
-            mess_id = context.bot.send_message(text=text, chat_id=chat_id, reply_markup=reply_markup).message_id
+            # reply_markup = f'{{"inline_keyboard":[[{{"mess":"{url_button_name}","url":"{url_button_link}"}}]]}}'
+            mess_id = context.bot.send_message(text=mess, chat_id=chat_id, reply_markup=reply_markup).message_id
         else:
-            mess_id = context.bot.send_message(text=text, chat_id=chat_id).message_id
+            mess_id = context.bot.send_message(text=mess, chat_id=chat_id).message_id
     else:
         if update.callback_query:
             # Если в сообщение встречается индикатор ошибки, то принудительно выводим окно с кнопкой
-            show_alert = True if (Error.INDICATOR in text or popup is True) else False
-            text = tools.clean_html(raw_html=text)
-            update.callback_query.answer(text=text, show_alert=show_alert)
+            show_alert = True if (Error.INDICATOR in mess or popup is True) else False
+            mess = tools.clean_html(raw_html=mess)
+            update.callback_query.answer(text=mess, show_alert=show_alert)
             mess_id = -1
             # chat_id = update.callback_query.message.chat_id
         else:
             # update.callback_query.answer()
-            mess_id = update.message.reply_text(f"{text}").message_id
+            mess_id = update.message.reply_text(f"{mess}").message_id
             # chat_id = update.message.chat_id
 
     # В случае, если режим вывода отличен от всплывающих сообщений, то...
@@ -357,7 +376,7 @@ def show_list_core(message_id, reply_text: str,
             # отправляем сообщение вновь
             # query.answer()
             chat_id = update.callback_query.message.chat_id
-            if context.user_data[etag.info]:
+            if context.user_data.get(etag.info):
                 message_id = context.bot.send_message(text=reply_text, reply_markup=reply_markup,
                                                       chat_id=chat_id).message_id
                 context.user_data[etag.info] = False
@@ -459,12 +478,12 @@ def run_background(func_start: Callable, update: Update, context: CallbackContex
         if context.job_queue.get_jobs_by_name(name=etag.background):
             mess = 'Еще не завершены задачи запущенные ранее!\n' \
                    'Дождитесь их завершения и попробуйте снова.'
-            alert(text=mess, update=update, context=context, popup=True)
+            alert(mess=mess, update=update, context=context, popup=True)
         else:
             # если необходимо отправить уведомление о начале запуска, то отправляем его
             if has_start_alert:
                 message = "Процедура может занять время.\nОб окончании сообщим отдельно!"
-                mess_id = alert(text=message, update=update, context=context, has_remove=False)
+                mess_id = alert(mess=message, update=update, context=context, has_remove=False)
                 # В случае, если режим вывода отличен от всплывающих сообщений, то...
                 if mess_id > 0:
                     # запускаем отложенное удаление уведомления, где задержка
@@ -475,7 +494,7 @@ def run_background(func_start: Callable, update: Update, context: CallbackContex
             context.job_queue.run_once(callback=_run_func_start_background, when=0, name=etag.background,
                                        context=dict(chat_id=chat_id, menu_id=menu_level,
                                                     con=context, upd=update))
-            delete_messages(0, update=update, context=context)
+            # delete_messages(0, update=update, context=context)
             if instantly_update:
                 result = __show_finish_menu(func_finish, menu_level, update=update, context=context)
             else:
@@ -485,7 +504,7 @@ def run_background(func_start: Callable, update: Update, context: CallbackContex
         # то обрабатываем в обычном порядке, сначала исполняем функцию
         message = func_start(**func_start_args)
         # затем выдаем оповещение об результате работы функции
-        alert(text=message, update=update, context=context)
+        alert(mess=message, update=update, context=context)
         # вызываем соответствующее меню
         result = __show_finish_menu(func_finish, menu_level, update=update, context=context)
 

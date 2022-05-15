@@ -971,12 +971,11 @@ def check_dns_tls(dns_ip_list: list, domain: str = 'ya.ru') -> (str, list):
     bash_cmd, dns_config = '', []
     # цикл по всем имеющимся DNS в списке
     for ip in dns_ip_list:
-        # Сначала проверяем в принципе DNS на доступ к нему.
+        #  формируем bash команду для проверки поддержки TLS
         cmd = f"{etag.dig} {domain} @{ip} {etag.short}"
         # исполняем bash команду
-        is_ok, ip_list = tools.run(cmd, stderr=DEVNULL)
-        # доступен ли сервер на 53 порту?
-        # если не доступен, то просто не записываем его в конфиг.
+        is_ok, _ = tools.run(cmd, stderr=DEVNULL)
+        # если DNS получает данные, то все нормально.
         if is_ok:
             #  формируем bash команду для проверки поддержки TLS
             cmd = f"{etag.dig} {domain} @{ip} {etag.short} {etag.tls}"
@@ -991,7 +990,6 @@ def check_dns_tls(dns_ip_list: list, domain: str = 'ya.ru') -> (str, list):
             ip_port = f'{ip}:853' if is_ok else f'{ip}:53'
             # добавляем значение DNS в список
             dns_config.append(ip_port)
-
     # Записываем значения DNS в файл конфигурации
     set_dns_config(dns_config)
     return bash_cmd, dns_config
@@ -1048,13 +1046,27 @@ def get_host_ip_list(host: str, dns_ip_list=None) -> list:
         return ret
 
     # получаем список DNS
-    dns_ip_list = dns_ip_list if dns_ip_list else get_dns_config()
+    # dns_ip_list = dns_ip_list if dns_ip_list else get_dns_config()
     #  формируем bash команду для запроса ip хоста, которая может содержать до трех DNS запросов в одной команде
-    bash_cmd = [f"{etag.dig} {host} @{ip} {etag.short}{f' {etag.tls}' if ':853' in ip else ''}" for ip in dns_ip_list]
-    bash_cmd = f" && ".join(bash_cmd)
+    # bash_cmd = [f"{etag.dig} {host} @{ip} {etag.short}{f' {etag.tls}' if ':853' in ip else ''}" for ip in dns_ip_list]
+    # bash_cmd = f" && ".join(bash_cmd)
+    # ips = get_domain_ip_list(bash_cmd_to_get_ip=bash_cmd)
 
+    # ГИПОТЕЗА
+    bash_cmd = f"{etag.dig} {host} +tls +short 2&>1 | grep -v ';;'"
     # получаем список ip для домена на основании сформированной команды
-    ips = get_domain_ip_list(bash_cmd_to_get_ip=bash_cmd)
+    is_ok, ip_list = tools.run(bash_cmd)
+    if is_ok and ip_list:
+        ips = ip_list.split("\n")
+    else:
+        bash_cmd = f"{etag.dig} {host} +short 2&>1 | grep -v ';;'"
+        is_ok, ip_list = tools.run(bash_cmd)
+        if is_ok and ip_list:
+            ips = ip_list.split("\n")
+        else:
+            zlog.debug(f"DNS сервера не работают! Проверьте интернет!")
+            ips = []
+
     # фильтруем список и оставляем только ip адреса и те, которые не равны значению '0.0.0.0'
     list_ips = [] if etag.error == ips[0] \
         else [ip for ip in ips if ip is not None and ip != etag.empty_ip and tools.get_ip_only(ip)]
@@ -1182,18 +1194,19 @@ def load_hosts_to_white_list(host_list: str | list,
                    f'При добавлении хостов возникли следующие ошибки:')
         # в случае наличия ошибок составляем список и
         # нумеруем его, в каждой новой строке
-        out = out + [mes.replace(Error.INDICATOR, f"{bs}{n}.{be} ")
-                     for n, mes in enumerate(errors_list, 1)]
+        out += [mes.replace(Error.INDICATOR, f"{bs}{n}.{be} ") for n, mes in enumerate(errors_list, 1)]
         result = "\n".join(out)
         zlog.error(result)
     else:
         mult_hosts = len(domains) > 1
         mult_inface = len(interfaces) > 1
-        host_in_str = ", ".join(domains)
+        # выводим домен и его IP
+        host_in_str = ", ".join([f'{d} {get_host_ip_list(d, dns_config)}' for d in domains])
         mult_hs = 'ы' if mult_hosts else ''
         mult_if = 'ы' if mult_inface else ''
         # Если ошибок нет, то формируем финальное сообщение об этом.
-        interfaces_str = ", ".join(interfaces)
+        inface_names = [get_interface_name(i) for i in interfaces]
+        interfaces_str = ", ".join(inface_names)
         result = f"Домен{mult_hs} {bs}{host_in_str}{be} успешно добавлен{mult_hs} " \
                  f"на интерфейс{mult_if} {bs}'{interfaces_str}'{be}."
         zlog.debug(result)
@@ -1284,7 +1297,7 @@ def change_hosts_interface(hosts: list, new_inface: str, old_inface: str) -> str
     return result
 
 
-def add_some_hosts(hosts: list, interfaces: list = None, auto_list: list = None, dns_ip: list = None) -> list:
+def add_some_hosts(hosts: list | dict, interfaces: list = None, auto_list: list = None, dns_ip: list = None) -> list:
     """
     Функция добавляет список хостов в БС (белый список) и возвращает список с результатами
 
@@ -1297,18 +1310,26 @@ def add_some_hosts(hosts: list, interfaces: list = None, auto_list: list = None,
     """
 
     # инициализация переменных
-    added, not_added, repeated, messages_list = [], [], [], []
+    current_hosts_list, added, not_added, repeated, messages_list = {}, [], [], [], []
     # если dns адреса отсутствуют, то получаем их из файла конфигурации
     dns_config = dns_ip if dns_ip else get_dns_config()
-    # получаем текущий БС хостов
-    current_hosts_list = get_hosts(interfaces=interfaces)
+    _ = [current_hosts_list.update({inface:get_hosts(interfaces=[inface])}) for inface in interfaces]
     # В случае наличия хостов в переданном списке идем дальше
     if hosts:
-        # генерируем список согласно полученным данным из auto_list
-        domain_list = zip(hosts, auto_list) if auto_list else zip(hosts, [True for _ in hosts])
+        is_tuple, _inface = isinstance(hosts[0], tuple), []
+        if is_tuple:
+            # если передали внутри tuple
+            domain_list = [(h, a) for h, _, a in hosts]
+            _inface = [i for _, i, _ in hosts]
+        else:
+            # генерируем список согласно полученным данным из auto_list
+            domain_list = zip(hosts, auto_list) if auto_list else zip(hosts, [True for _ in hosts])
         #  проходимся по каждому хосту в списке
-        for _host, _auto in domain_list:
-            if _host in current_hosts_list:
+        for _ind, (_host, _auto) in enumerate(domain_list):
+            inface_list = [_inface[_ind]] if is_tuple else interfaces
+            has_in_host_list = _host in current_hosts_list[_inface[_ind]] if is_tuple \
+                                else sum(current_hosts_list.values(), [])
+            if has_in_host_list:
                 # если добавляемый хост уже есть в БС, то добавляем
                 # его в соответствующий список для последующего формирования
                 # результирующего сообщения
@@ -1316,7 +1337,7 @@ def add_some_hosts(hosts: list, interfaces: list = None, auto_list: list = None,
                 zlog.debug(f'Хост "{_host}" уже имеется в БС.')
             else:
                 # если хост не повторяется, то добавляем его в БС
-                for inface in interfaces:
+                for inface in inface_list:
                     mess = set_host_attributes(host_name=_host, auto=_auto, interface=inface, dns_ip=dns_config)
                     if Error.INDICATOR in mess:
                         #  проверяем результат на наличие ошибок
@@ -1644,7 +1665,7 @@ def load_backup(backup_name: str, interfaces: list = None,
     :return: Возвращаем сообщение о результате проведения операции
     """
 
-    def make_update(domains: list, inface_list: list = None, auto_flist: list = None) -> (list, list):
+    def make_update(domains: list[str | tuple], inface_list: list = None, auto_flist: list = None) -> (list, list):
         """
         Функция осуществляет обновление данных по доменам
         в зависимости от существующих ограничений
@@ -1672,6 +1693,8 @@ def load_backup(backup_name: str, interfaces: list = None,
                                   f"Архив {bs}{backup_name}{be} "
                                   f"не может быть загружен по следующим причинам:")
         if not errors_list:
+            # Если передан точный список данных из файла, то данные об интерфейсе и auto есть внутри domains
+            auto_flist = None if isinstance(domains[0], tuple) else auto_flist
             # если при удалении ошибок не было, то добавляем хосты из архива в БС
             messages_list = add_some_hosts(hosts=domains,
                                            interfaces=inface_list,
@@ -1688,18 +1711,29 @@ def load_backup(backup_name: str, interfaces: list = None,
         return result_out, errors_list
 
     # Получаем данные о всех доменных именах в архиве
-    hosts = hosts_list if hosts_list else get_backup_host_list(backup_name)
+    _hosts = get_backup_host_list(backup_name)
+    if hosts_list:
+        # оставляем только те, что есть в списке отобранных
+        hosts = [ht for ht in _hosts if ht.split(etag.divo)[0] in hosts_list]
+    else:
+        hosts = _hosts
+    del _hosts
     # Проверяем на наличие ошибок при получении содержимого архива
     if Error.INDICATOR not in hosts[0]:
         # проверяем содержится ли в файле данные об интерфейсе и флаге auto
         # которые разделены знаком '|'
         if etag.divo in hosts[0]:
             # в случае, если имеются данные разделенные знаком '|'
-            _hosts, _infaces, _auto = [], [], []
             # если флаг есть, то значит данные записаны в нем верно
-            [(_hosts.append(h), _infaces.append(i), _auto.append(a)) for h, i, a in [ln.split('|') for ln in hosts]]
+            domains_tuple = []
+            if interfaces:
+                for inface in interfaces:
+                    domains_tuple += [(h, inface, a) for h, _, a in [ln.split('|') for ln in hosts]]
+
+            else:
+                domains_tuple = [(h, i, a) for h, i, a in [ln.split('|') for ln in hosts]]
             # производим обновление данных
-            out, errs = make_update(domains=_hosts, inface_list=_infaces, auto_flist=_auto)
+            out, errs = make_update(domains=domains_tuple, inface_list=interfaces)
         else:
             # в случае, если данных разделенных знаком '|' НЕТ
             # производим обновление данных
@@ -1709,8 +1743,8 @@ def load_backup(backup_name: str, interfaces: list = None,
         if errs:
             # в случае наличия ошибок составляем список и
             # нумеруем его, в каждой новой строке
-            out = out + [mes.replace(Error.INDICATOR, f"{bs}{n}.{be} ")
-                         for n, mes in enumerate(errs, 1)]
+            out += [mes.replace(Error.INDICATOR, f"{bs}{n}.{be} ")
+                    for n, mes in enumerate(errs, 1)]
             result = "\n".join(out)
         else:
             # Если ошибок нет, то формируем финальное сообщение об этом.

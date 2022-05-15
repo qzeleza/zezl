@@ -1,4 +1,5 @@
 #!/bin/python3
+# coding=utf-8
 
 #
 #  Copyright (c) 2022.
@@ -19,21 +20,29 @@
 https://docs-python.ru/packages/biblioteka-python-telegram-bot-python/obrabotka-oshibok/
     
 """
-from telegram import ParseMode, Update
-from telegram.utils.helpers import mention_html
-import sys
-import traceback
 import html
 import json
+import sys
+import traceback
+
+from telegram import ParseMode, Update
+from telegram.utils.helpers import mention_html
+
+from setup.data import DEVELOPER_USER_ID
 
 
-# Это общая функция обработчика ошибок.
-# Если нужна дополнительная информация о конкретном типе сообщения,
-# добавьте ее в полезную нагрузку в соответствующем предложении `if ...`
 def error_tracer(update, context):
+    """
+    Это общая функция обработчика ошибок.
+    Если нужна дополнительная информация о конкретном типе сообщения,
+    добавьте ее в полезную нагрузку в соответствующем предложении `if ...`
+
+    :param update:
+    :param context:
+    """
     # Добавьте все идентификаторы разработчиков в этот список.
     # Можно добавить идентификаторы каналов или групп.
-    devs = [283549173]
+    devs = [DEVELOPER_USER_ID]
     # Уведомление пользователя об этой проблеме.
     # Уведомления будут работать, только если сообщение НЕ является
     # обратным вызовом, встроенным запросом или обновлением опроса.
@@ -82,7 +91,7 @@ def error_tracer(update, context):
         f'Возникло исключение при обработке сообщения.\n'
         f'<pre>update = {html.escape(json.dumps(update_str, indent=2, ensure_ascii=False))}'
         '</pre>\n\n'
-        f"Ошибка <code>{context.error}</code> случилась{''.join(payload)}. "
+        f"Ошибка <code>{context.error}</code> случилась{''.join(payload)}. \n"
         f'<pre>context.chat_data = {html.escape(str(context.chat_data))}</pre>\n\n'
         f'<pre>context.user_data = {html.escape(str(context.user_data))}</pre>\n\n'
         f'<pre>{html.escape(tb_string)}</pre>\n\n'

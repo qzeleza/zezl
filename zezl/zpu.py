@@ -418,7 +418,7 @@ def cmd_import_backup() -> str:
 
     """
     # для импорта должен быть выбран только один архив
-    chosen = cmd_choose_backup(action_desc="импорта", all_first=False)
+    chosen = cmd_choose_backup(action_desc="импорта")
     chosen = "".join(chosen)
     zlog.debug(chosen)
     if chosen:

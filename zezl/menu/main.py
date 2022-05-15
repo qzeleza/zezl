@@ -4,17 +4,18 @@ from telegram import Update
 from telegram.ext import CallbackContext
 
 from libraries.main import tools as tools, dialog
+from libraries.watchdogs.errors import get_errors_from_file
 from libraries.watchdogs.jobs import run_wdogs_at_start
+from setup.autosets import MAIN_MENU, SEND_TO_IGNORE_LIST
+from setup.data import (
+    VERSION,
+    APP_PATH
+)
 from setup.description import (
     ErrorTextMessage as Error,
     be, bs, etag,
 )
 from setup.menu import Menu
-from setup.autosets import MAIN_MENU
-from setup.data import (
-    VERSION,
-    APP_PATH
-)
 
 
 @run_wdogs_at_start
@@ -49,21 +50,29 @@ def show_bot_about(update: Update, context: CallbackContext) -> int:
                  f"Zeleza© 03.2022\n" \
                  f"{bs}Россия{be}"
 
-    dialog.alert(text=text_about, update=update, context=context, popup=True, delay_time=10)
+    dialog.alert(mess=text_about, update=update, context=context, popup=True, delay_time=10)
     return MAIN_MENU
 
 
 def show_bot_history(update: Update, context: CallbackContext) -> int:
+    """
+    Функция отображает сообщение об истории изменений версий пакета Жезл
+
+    :param update:
+    :param context:
+    :return:
+    """
     text_about = "\n".join(tools.get_file_content(file=f"{APP_PATH}/HISTORY"))
-    dialog.alert(text=text_about, update=update, context=context, popup=True, delay_time=30)
+    dialog.alert(mess=text_about, update=update, context=context, popup=True, delay_time=30)
     return MAIN_MENU
 
 
 def cmdjust(cmd: str, max_len: int = 18) -> str:
     """
+    Функция выравнивает строку по заданному числу знаков в строке
 
-    :param cmd:
-    :param max_len:
+    :param cmd: команда или строка
+    :param max_len: длина строки
     :return:
     """
     return f"{bs}{cmd}{be}".ljust(max_len)
@@ -104,14 +113,59 @@ def show_command_help(update: Update, context: CallbackContext) -> int:
                f"{bs}/new{be} yandex.ru google.ru; list.com, trust.com\n" \
                f"{bs}/del{be} yandex.ru;google.ru;list.com;trust.com"
 
-    dialog.alert(text=menu_help, update=update, context=context, has_remove=False)
-    dialog.alert(text=cmd_help, update=update, context=context, has_remove=False)
+    dialog.alert(mess=menu_help, update=update, context=context, has_remove=False)
+    dialog.alert(mess=cmd_help, update=update, context=context, has_remove=False)
 
     return MAIN_MENU
 
 
 def handle_invalid_button(update: Update, _: CallbackContext) -> int:
-    """Informs the user that the button is no longer available."""
+    """
+    Функция информирует пользователя о том, что кнопка больше недоступна
+
+    :param update:
+    :param _:
+    :return:
+    """
     # update.callback_query.answer()
     update.effective_message.edit_text(Error.INVALID_BUTTON_MESSAGE)
     return MAIN_MENU
+
+
+def close_menu(update: Update, _: CallbackContext) -> None:
+    """
+    Функция вызывается только с одной целью - закрыть текущее меню/окно/сообщение с текущим id.
+
+    :param _:
+    :param update:
+    """
+    if update.message:
+        update.message.delete()
+
+    if update.callback_query:
+        update.callback_query.delete_message()
+
+    return None
+
+
+def send_to_ignore_list(update: Update, context: CallbackContext) -> None:
+    """
+    Функция вызывается только с одной целью - добавить в список игнорирования соответствущее сообщение.
+
+    :param context:
+    :param update:
+    """
+    num_err = "".join(update.callback_query.data.split(f'{SEND_TO_IGNORE_LIST}_'))
+    err_list = get_errors_from_file(err_number=num_err)
+    err_mess = "".join([m for n, _, m in err_list if n == num_err])
+
+    if context.user_data.get(etag.err_ignore_list) is None:
+        # если список еще пустой и не создан
+        context.user_data[etag.err_ignore_list] = [err_mess]
+    else:
+        #  если список создан, то проверяем нет ли там уже такой записи
+        if err_mess not in context.user_data[etag.err_ignore_list]:
+            # если нет то добавляем
+            context.user_data[etag.err_ignore_list].append(err_mess)
+
+    return None

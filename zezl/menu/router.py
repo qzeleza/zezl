@@ -5,8 +5,8 @@ from telegram.ext import CallbackContext
 
 from keenetic import device
 from libraries.main import dialog
-from setup.menu import Menu
 from setup.autosets import ROUTER_MENU, ROUTER_LIST_MENU
+from setup.menu import Menu
 
 
 class RouterMenu:
@@ -38,7 +38,7 @@ class RouterMenu:
     def show_model_info(self, update: Update, context: CallbackContext) -> int:
 
         text = device.about_model()
-        dialog.alert(text=text, update=update, context=context, popup=True)
+        dialog.alert(mess=text, update=update, context=context, popup=True)
         try:
             result = self.show_router_menu(update, context)
         except error.BadRequest:

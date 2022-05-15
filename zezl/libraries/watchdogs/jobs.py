@@ -125,7 +125,7 @@ def wdogs_job_start(func_to_run: Callable, interval: str, update: Update, contex
         mess = f"Сторож '{job_name}' остановлен!"
         zlog.debug(mess)
         # delay_time_min = period_to_sec(context.user_data[etag.error_interval])
-        # alert(text=mess, update=update, context=context, delay_time=delay_time_min, in_cmd_line=True)
+        # alert(mess=mess, update=update, context=context, delay_time=delay_time_min, in_cmd_line=True)
 
     # записываем в переменную имя задания, чтобы его можно было получить в любом месте бота
     try:
@@ -134,13 +134,18 @@ def wdogs_job_start(func_to_run: Callable, interval: str, update: Update, contex
     except AttributeError:
         context.user_data.update({func_name: [job_name]})
     # переводим интервал сначала в английскую кодировку, а затем в секунды
-    interval_sec = period_to_sec(period_to_eng(interval))
+    zlog.debug(f'Передаваемый интервал {interval}')
+    interval_sec = interval if isinstance(interval, int) else period_to_sec(period_to_eng(interval))
     # запускаем задание в фоне с периодом interval_sec и без пауз, сразу: first=0
-    context.job_queue.run_repeating(callback=func_to_run,
-                                    interval=interval_sec,
-                                    context=func_to_run_args,
-                                    first=0,
-                                    name=job_name)
+    job = context.job_queue.run_repeating(callback=func_to_run,
+                                          interval=interval_sec,
+                                          context=func_to_run_args,
+                                          first=1,
+                                          name=job_name)
+    if job:
+        mess = f"Сторож '{job_name}' успешно запущен!"
+        zlog.debug(mess)
+
     return None
 
 
@@ -170,6 +175,7 @@ def wdogs_job_stop(job_name_value: str, context: CallbackContext) -> bool:
                 # если список заданий получен, то последовательно удаляем все задания
                 for jb in current_jobs:
                     jb.schedule_removal()
+                    zlog.warning(f"Задание {job} успешно удалено!")
     else:
         zlog.warning(f"Задачи для '{job_name_value}' отсутствуют, получить список заданий не удалось!")
         res = False
@@ -184,8 +190,9 @@ def wdogs_errors_run_at_start(update: Update, context: CallbackContext) -> None:
 
     :return:
     """
-    interval = get_value(name=etag.error_interval, default=3, context=context)
-    wdogs_job_start(func_to_run=wdog_system_errors_alert_run, interval=interval, update=update, context=context)
+    if get_value(name=etag.error_state, default='True', context=context).lower() == etag.true:
+        interval = get_value(name=etag.error_interval, default=3, context=context)
+        wdogs_job_start(func_to_run=wdog_system_errors_alert_run, interval=interval, update=update, context=context)
 
 
 def wdogs_news_run_at_start(update: Update, context: CallbackContext) -> None:

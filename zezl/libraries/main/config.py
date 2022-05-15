@@ -44,11 +44,13 @@ def check_config_file() -> bool:
     return check(file=CONFIG_FILE, subject=FILE)
 
 
-def get_config_value(name: str) -> str:
+def get_config_value(name: str, default: str = None) -> str:
     """
-    Функция получает значение из файла конфигурации
+    Функция получает значение из файла конфигурации.
+    В случае наличия default - добавляем значение в файл и возвращаем именно его.
 
     :param name: имя получаемого параметра.
+    :param default: Значение по умолчанию в случае отсутствия данных в файле.
     :return: значение получаемого параметра.
     """
     # имя параметра в конфиге хранится в верхнем значении регистров
@@ -74,6 +76,10 @@ def get_config_value(name: str) -> str:
         tools.run(command=cmd)
         # возвращаем пустой результат
         result = ''
+
+    if not result and default:
+        result = default
+        set_config_value(name=name, value=default.upper())
 
     return result
 

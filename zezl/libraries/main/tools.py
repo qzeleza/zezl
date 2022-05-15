@@ -70,11 +70,13 @@ def period_to_rus(period_en: str) -> str:
     :param period_en: код периода в виде 2m, 21d и пр.
     :return: возвращает русское название 2 мин., 21 дн.
     """
-
-    interval = get_digits(period_en)
-    period = get_alpha(period_en)
-
-    return f"{interval} {PERIOD_TABLE[period]}"
+    if not match(period_en):
+        interval = get_digits(period_en)
+        period = get_alpha(period_en)
+        result = f"{interval} {PERIOD_TABLE[period]}"
+    else:
+        result = period_en
+    return result
 
 
 def period_to_eng(period_rus: str) -> str:
@@ -87,9 +89,12 @@ def period_to_eng(period_rus: str) -> str:
     """
     interval = get_digits(period_rus)
     period = get_alpha(period_rus)
-    period = "".join([k for k, v in PERIOD_TABLE.items() if period in v])
-
-    return f"{interval}{period}"
+    if match(period):
+        period = "".join([k for k, v in PERIOD_TABLE.items() if period in v])
+        result = f"{interval}{period}"
+    else:
+        result = period_rus
+    return result
 
 
 def period_to_sec(time_str: str) -> int:
@@ -222,7 +227,8 @@ def is_url_valid(url: str) -> bool:
     h = Http()
     try:
         resp = h.request(url, 'HEAD')
-        result = int(resp[0][etag.status]) < 400
+        result = int(resp[0][etag.status])
+        result = True if result == 418 else result < 400
     except error.HttpLib2Error:
         result = False
 
@@ -512,7 +518,7 @@ def get_file_content(file: str) -> list:
     :param file: полный путь к файлу вместе с именем.
     :return: содержимое файла в виде списка строк.
     """
-    cmd = f"cat {file}"
+    cmd = f"cat {file} | grep -E '\n' | grep -v '^#' "
     result, out = run(command=cmd)
     if result and out:
         lines = out.splitlines()
@@ -553,7 +559,7 @@ def lines_in_file(file: str) -> int:
     :param file: полный путь до файла.
     :return: число строк в файле int
     """
-    cmd = f"cat '{file}' | wc -l"
+    cmd = f"cat '{file}' | grep -E '\n' | grep -v '^#' | wc -l"
     result, out = run(command=cmd)
     return int(out) if result else -1
 
@@ -588,6 +594,17 @@ def mkdir(path: str) -> bool:
     :return: булевый результат исполнения команды
     """
     cmd = f"mkdir -p '{path}'"
+    result, _ = run(command=cmd)
+    return result
+
+
+def mkfile(file: str) -> bool:
+    """
+    Функция создает указанную папку с необходимыми вложениями.
+    :param file: полный путь до файла с его именем.
+    :return: булевый результат исполнения команды
+    """
+    cmd = f"touch '{file}'"
     result, _ = run(command=cmd)
     return result
 
@@ -703,7 +720,7 @@ def get_ip_only(text: str) -> str:
     """
     from re import findall
     regex = r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})"
-    # ip = "".join([ch for ch in text if (ch.isdigit() or ch == '.')])
+    # ip = "".join([ch for ch in mess if (ch.isdigit() or ch == '.')])
     return "".join(findall(regex, text))
 
 
@@ -840,7 +857,7 @@ def run(command: str, stderr: int = PIPE) -> (bool, str):
     #     # определяем наличие файла с именем текущей ОС
     #     file = '/etc/os-release'
     #     cmd = f"if [ -f '{file}' ]; then echo 1; else echo 0; fi"
-    #     reply = bash(args=cmd, stdout=PIPE, text=True, shell=True)
+    #     reply = bash(args=cmd, stdout=PIPE, mess=True, shell=True)
     #     # устанавливаем флаг ACCESS_REMOTE в True, в случае, если файл имеется
     #     # (на роутере такого файла быть не должно)
     #     ACCESS_REMOTE = True if reply.returncode == 0 and reply.stdout == '1\n' else False

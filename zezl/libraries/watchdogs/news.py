@@ -24,7 +24,7 @@ from datetime import datetime
 
 import httplib2
 from bs4 import BeautifulSoup
-from telegram.error import BadRequest
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackContext
 
 from libraries.main.decorators import func_name_logger
@@ -34,7 +34,9 @@ from libraries.main.tools import (
     run as bash, get_hash, match, clean_me, period_to_rus, check_url
 )
 from logs.logger import zlog
-from setup.data import etag, LINK_LIST_FILE, LINE, WDOGS_DELAY_BEFORE_DELETE, WDOG_SAVE_FORMAT, ROUTER_LOG_DATE_FORMAT
+from setup.autosets import CALLBACK_TO_CLOSE_MENU
+from setup.data import etag, LINK_LIST_FILE, LINE, WDOGS_DELAY_BEFORE_DELETE, WDOG_SAVE_FORMAT, ROUTER_LOG_DATE_FORMAT, \
+    UPDATE_DATE_FORMAT
 from setup.description import be, bs, cde, cds
 
 
@@ -101,6 +103,7 @@ def convert_datalink_to_dict(details: list) -> dict:
         etag.link,
         etag.check_date,
         etag.update_date,
+        etag.last_hash,
         etag.login,
         etag.password,
     ]
@@ -114,7 +117,8 @@ def convert_datalink_to_dict(details: list) -> dict:
         if etag.state in _key:
             _vl = True if etag.on in _value else False
         elif etag.period in _key:
-            _vl = period_to_rus(_value)
+            # _vl = period_to_rus(_value)
+            _vl = _value
         else:
             _vl = _value.strip(sims_to_del)
         host.update({_key: _vl})
@@ -325,14 +329,18 @@ def get_site_date_update(url: str) -> datetime | None:
     :return:
     """
 
-    h = httplib2.Http()
-    # делаем HEAD запрос
-    resp = h.request(url, etag.head)[0]
-    # Получаем дату крайнего обновления страницы
-    date_update_txt = resp.get(etag.last_modified)
-    # переводим дату в формат даты
-    date_site_update = datetime.strptime(date_update_txt, ROUTER_LOG_DATE_FORMAT) if date_update_txt else None
-    zlog.debug(f"Дата обновления сайта '{url}' '{date_update_txt}'")
+    if url:
+        h = httplib2.Http()
+        # делаем HEAD запрос
+        resp = h.request(url, etag.head)[0]
+        # Получаем дату крайнего обновления страницы
+        date_update_txt = resp.get(etag.last_modified)
+        # переводим дату в формат даты
+        date_site_update = datetime.strptime(date_update_txt, ROUTER_LOG_DATE_FORMAT) if date_update_txt else None
+        zlog.debug(f"Дата обновления сайта '{url}' '{date_update_txt}'")
+    else:
+        zlog.debug(f"Переданная ссылка пуста '{url}'")
+        date_site_update = None
 
     return date_site_update
 
@@ -405,14 +413,15 @@ def wdog_news_run(args: CallbackContext) -> None:
             # получаем предыдущие данные о ссылке записанные в файл
             site = get_data_page(link=url)
             if site:
-                prev_date_update = datetime.strptime(site[etag.update_date], WDOG_SAVE_FORMAT)
+                # prev_date_update = datetime.strptime(site[etag.update_date], WDOG_SAVE_FORMAT)
                 # получаем содержимое страницы
                 page_text = get_site_content_for_hash(url=url)
                 # получаем хеш страницы
                 now_hash = get_hash(text=page_text)
                 # если дата обновления страницы больше, чем ранее записанная дата
                 # или хеши не равны между собой, то страница подверглась изменениям
-                result = True if now_date_update > prev_date_update or now_hash != site[etag.last_hash] else False
+                # result = True if now_date_update > prev_date_update or now_hash != site[etag.last_hash] else False
+                result = False if now_hash == site[etag.last_hash] else True
             else:
                 # если данные были не получены из файла
                 zlog.warning('Данные были не получены из файла.')
@@ -425,36 +434,45 @@ def wdog_news_run(args: CallbackContext) -> None:
         return result, now_date_update
 
     # производим запрос на наличие обновлений
-    site_link = context.user_data[etag.site_link]
+    site_link = context.user_data.get(etag.site_link)
     zlog.info(f"<< Запуск функции проверки обновления сайта {site_link} >>")
 
     # проверяем обновлялся ли сайт
     has_updated, date_updated = check_url_update(url=site_link)
     if has_updated:
-        try:
-            # удаляем предыдущее плавающее меню, если есть ошибки
-            # на них прежде всего необходимо обратить внимание, поэтому и удаляем меню
-            # если нужно будет его вызвать - пользователь это может сделать через меню
-            update.callback_query.delete_message()
-            zlog.info(f"Удалили предыдущее меню")
-        except BadRequest:
-            pass
+        # try:
+        #     # удаляем предыдущее плавающее меню, если есть ошибки
+        #     # на них прежде всего необходимо обратить внимание, поэтому и удаляем меню
+        #     # если нужно будет его вызвать - пользователь это может сделать через меню
+        #     update.callback_query.delete_message()
+        #     zlog.info(f"Удалили предыдущее меню")
+        # except BadRequest:
+        #     pass
 
         zlog.info(f"Обнаружено обновление данных по ссылке {site_link}")
-        mess = f"{bs}Страница была обновлена {date_updated}{be}\n" \
+        date_updated_str = date_updated.strftime(UPDATE_DATE_FORMAT)
+        mess = f"{bs}Страница была обновлена{be}\n" \
+               f"{date_updated_str}\n" \
                f"{LINE}" \
                f"{site_link}\n" \
                f"{LINE}"
 
-        alert(text=mess, update=update, context=context,
-              in_cmd_line=True, delay_time=WDOGS_DELAY_BEFORE_DELETE,
-              url_button_name="Перейти на сайт",
-              url_button_link=site_link)
+        keyboard = [
+            [InlineKeyboardButton(text="Перейти на сайт", url=site_link)],
+            [
+                InlineKeyboardButton(text="Закрыть", callback_data=CALLBACK_TO_CLOSE_MENU)
+            ],
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        # получаем id текущего чата
+        chat_id = update.effective_chat.id
+        context.bot.send_message(text=mess, chat_id=chat_id, reply_markup=reply_markup)
 
         # обновляем данные об изменениях в файле
-        mess = save_link_data(link=site_link, period=context.user_data[etag.period],
+        mess = save_link_data(name=context.user_data[etag.link_name],
+                              link=site_link, period=context.user_data[etag.period],
                               state=context.user_data[etag.state])
-        alert(text=mess, update=update, context=context,
+        alert(mess=mess, update=update, context=context,
               in_cmd_line=True, delay_time=WDOGS_DELAY_BEFORE_DELETE)
 
     return None

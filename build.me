@@ -18,13 +18,13 @@ APP_RELEASE=1
 APP_ARCH=all
 APP_INITD_NAME="S61${APP_NAME}"
 BACKUP_DIR=backups
-
+FILE_DATA=remote_data.py
 
 APP_ROOT=/opt/apps/${APP_NAME}/${APP_NAME}
 APP_SRC_PATH=${APP_ROOT}
 APP_SRC_ETC_PATH=/opt/apps/${APP_NAME}/opt/etc
 APP_INITD_DEST_PATH=/opt/etc/init.d
-
+DEBUG_PATH=debug
 
 ROOT_TOOLS=/opt/apps/${APP_NAME}/Entware
 APP_TOOLS_PATH=${ROOT_TOOLS}/package/utils/${APP_NAME}
@@ -32,14 +32,20 @@ APP_TOOLS_VERSION_FILE=${APP_TOOLS_PATH}/.version
 APP_TOOLS_RELEASE_FILE=${APP_TOOLS_PATH}/.release
 
 APP_BUILD_FILES_PATH=${APP_TOOLS_PATH}/files
-APP_BUILD_OPT_FILES_PATH=${APP_BUILD_FILES_PATH}/opt/etc
+APP_BUILD_OPT_FILES_PATH=${APP_BUILD_FILES_PATH}/opt
 APP_BUILD_APP_FILES_PATH=${APP_BUILD_FILES_PATH}
+
+MY_PASS=$(cat < ${APP_ROOT}/${DEBUG_PATH}/${FILE_DATA} | grep -E '^PASSWD' | cut -d'"' -f2)
+MY_PORT=$(cat < ${APP_ROOT}/${DEBUG_PATH}/${FILE_DATA} | grep -E '^PORT' | cut -d' ' -f3)
+MY_ROUTER=$(cat < ${APP_ROOT}/${DEBUG_PATH}/${FILE_DATA} | grep -E '^ROUTER' | cut -d'"' -f2)
+
 
 rm -rf "${APP_BUILD_FILES_PATH}" "${APP_BUILD_OPT_FILES_PATH}"
 mkdir -p ${APP_BUILD_OPT_FILES_PATH} ${APP_BUILD_FILES_PATH}
 
-cp -a "${APP_SRC_ETC_PATH}/." ${APP_BUILD_OPT_FILES_PATH}/
+cp -a "/opt/apps/${APP_NAME}/opt/." ${APP_BUILD_OPT_FILES_PATH}/
 cp -a "${APP_SRC_PATH}/." ${APP_BUILD_FILES_PATH}/
+cp -a "${APP_SRC_ETC_PATH}/." ${APP_BUILD_FILES_PATH}/etc
 
 # Первоначальные действия если файл с версией релиза еще не создавался
 if ! [ -f "${APP_TOOLS_RELEASE_FILE}" ] || [ "${2}" = '0' ]; then
@@ -122,6 +128,7 @@ define Package/${APP_NAME}
 	SECTION:=utils
 	CATEGORY:=keendev
 	DEPENDS:=+curl +knot-dig +cron +python3 +python3-pip
+#	+bind-dig +dnsmasq-full +ipset +iptables +shadowsocks-libev-ss-redir +shadowsocks-libev-config
 	URL:=no
 	TITLE:=Телеграм-бот для обработки запросов по внесению хостов в белый список VPN соединения.
 	PKGARCH:=${APP_ARCH}
@@ -149,11 +156,23 @@ define Package/${APP_NAME}/install
 	\$(CP) ./files/${APP_DIR_LIST} \$(1)/opt/apps/${APP_NAME}/
 	\$(INSTALL_BIN) ./files/{${APP_NAME}.py,${DEMON_NAME}.py} \$(1)/opt/apps/${APP_NAME}
 
-	\$(INSTALL_DIR) \$(1)/opt/etc/${APP_NAME}/${BACKUP_DIR}
 #	\$(INSTALL_DATA) ./files/${APP_NAME}.conf \$(1)/opt/etc/${APP_NAME}
 
+	\$(INSTALL_DIR) \$(1)/opt/etc/${APP_NAME}/${BACKUP_DIR}
 	\$(INSTALL_DIR) \$(1)${APP_INITD_DEST_PATH}
 	\$(INSTALL_BIN) ./files${APP_INITD_DEST_PATH}/${APP_INITD_NAME} \$(1)${APP_INITD_DEST_PATH}/${APP_INITD_NAME}
+
+#	\$(INSTALL_DIR) \$(1)/opt/etc/ndm/fs.d
+#	\$(INSTALL_DIR) \$(1)/opt/etc/ndm/netfilter.d
+#	\$(INSTALL_DIR) \$(1)/opt/bin
+#	\$(INSTALL_DATA) ./files/opt/etc/${APP_NAME}/unblock.list \$(1)/opt/etc/${APP_NAME}
+#	\$(INSTALL_BIN) ./files/opt/etc/ndm/fs.d/100-ipset \$(1)/opt/etc/ndm/fs.d
+#	\$(INSTALL_BIN) ./files/opt/etc/ndm/netfilter.d/100-ipset-redirect \$(1)/opt/etc/ndm/netfilter.d
+#	\$(INSTALL_BIN) ./files/opt/bin/{unblock_ipset,unblock_dnsmasq,unblock_update} \$(1)/opt/bin
+#	\$(CP) ./files/opt/etc/shadowsocks.json \$(1)/opt/etc/
+#	\$(CP) ./files/opt/etc/dnsmasq.conf \$(1)/opt/etc/
+#	\$(CP) ./files${APP_INITD_DEST_PATH}/S22shadowsocks \$(1)${APP_INITD_DEST_PATH}
+#	\$(INSTALL_BIN) ./files${APP_INITD_DEST_PATH}/S99unblock \$(1)${APP_INITD_DEST_PATH}
 
 endef
 
@@ -233,6 +252,9 @@ if [ -z "$\$(find /opt/lib/python* | grep  'telegram/bot.py')" ]; then
 fi
 
 echo "${LINE}"
+
+
+
 echo "Устанавливаем скрипт ${DEMON_NAME} для работы из командной строки..."
 ln -fs /opt/apps/${APP_NAME}/${DEMON_NAME}.py /opt/bin/${DEMON_NAME}
 echo "Ставим обновление ip адресов по умолчанию - каждые 12 часов."
@@ -259,6 +281,33 @@ if [ "$\$token_conf" ]; then
 
 fi
 echo "${LINE}"
+
+
+# SHADOWSOCKS
+
+#echo "Ставим обновление ip адресов по умолчанию - каждые 12 часов (ipset)."
+#sed -i /unblock_ipset/d /opt/etc/crontab
+#echo '0 */12 * * * root /opt/bin/unblock_ipset ' >> /opt/etc/crontab
+
+#curl -s -d '{"yes":true}' localhost:79/rci/opkg/dns-override
+#curl -s -d '{"yes":true}' localhost:79/rci/system/configuration/save
+#
+#while true; do
+#	echo 'Для корректной работы пакета требуется перезагрузка роутера...'
+#	echo "Произвести перезагрузку сейчас [Y/N]? "
+#	read -r ynq
+#	case $\${ynq} in
+#		[Yy]* )
+#			echo "Перегружаем роутер..."
+#			curl -s -d '{"yes":true}' localhost:79/rci/system/reboot
+#			break;;
+#		[Nn]* )
+#			echo 'Пожалуйста помните, что для корректной работы пакета требуется перезагрузка роутера'
+#			echo "${LINE}"
+#			break;;
+#		* ) echo "Пожалуйста ответьте на вопрос 'Y' - удалить или 'N' - оставить.";;
+#	esac
+#done
 
 endef
 
@@ -340,31 +389,31 @@ export FORCE_UNSAFE_CONFIGURE=1
 if [[ "${2}" = '1' ]] || [[ "${2}" = '0' ]]; then
 #	первоначальная компиляция - исключительно на одном процессоре
 #	из-за ошибок при параллельной обработке библиотек
-	if ! [ -f "/opt/apps/zezl/Entware/scripts/config/.config" ]; then
+	if ! [ -f "/opt/apps/zezl/Entware/.config" ]; then
 		make menuconfig
 	fi
-	make -j1 # "$(nproc)"
-	make libraries/install #-j "$(nproc)"
-	make toolchain/install #-j "$(nproc)"
-	make package/${APP_NAME}/compile #-j "$(nproc)"
-fi
-if [ "${2}" -eq 2 ]; then
-#	компиляция после первоначальной сборки кода (можно вести параллельно)
-	make libraries/install V=sc #-j "$(nproc)"
+	make -j "$(nproc)"
+	make tools/install -j "$(nproc)"
 	make toolchain/install -j "$(nproc)"
 	make package/${APP_NAME}/compile -j "$(nproc)"
 fi
-#make libraries/install #V=sc
-#make toolchain/install #V=sc
-#make package/${APP_NAME}/compile V=sc || exit
-#make package/${APP_NAME}/compile -j4 #-j "$(nproc)"
-
-#make package/${APP_NAME}/install
-#make package/index
-
+if [ "${2}" -eq 2 ]; then
+#	компиляция после первоначальной сборки кода (можно вести параллельно)
+	make tools/install -j "$(nproc)"
+	make toolchain/install -j "$(nproc)"
+	make package/${APP_NAME}/compile -j "$(nproc)" #V=sc
+fi
+#	make libraries/install V=sc #-j "$(nproc)"
+#	make toolchain/install -j "$(nproc)"
 
 APP_PKG_TAR_NAME=${APP_NAME}_${APP_VER_FULL}_${APP_ARCH}.ipk
 APP_PKG_FILE="${ROOT_TOOLS}/bin/targets/mipsel-3.4/generic-glibc/packages/${APP_PKG_TAR_NAME}"
 mkdir -p ${ROOT_TOOLS}/backup/
 cp "${APP_PKG_FILE}" "/opt/apps/${APP_NAME}/backup"
-#apt-get install sshpass
+
+sshpass -p "${MY_PASS}" scp -P "${MY_PORT}" "${APP_PKG_FILE}" "${MY_ROUTER}:/opt/packages/${APP_NAME}"
+sshpass -p "${MY_PASS}" ssh -p "${MY_PORT}" "${MY_ROUTER}" 'opkg remove '${APP_NAME}
+sshpass -p "${MY_PASS}" ssh -p "${MY_PORT}" "${MY_ROUTER}" 'rm -rf /opt/apps/'${APP_NAME}
+sshpass -p "${MY_PASS}" ssh -p "${MY_PORT}" "${MY_ROUTER}" 'opkg install /opt/packages/'"${APP_NAME}/${APP_PKG_TAR_NAME}"
+sshpass -p "${MY_PASS}" ssh -p "${MY_PORT}" "${MY_ROUTER}" 'opkg files '${APP_NAME}
+#sshpass -p "${MY_PASS}" ssh -p "${MY_PORT}" "${MY_ROUTER}" 'ls /opt/apps/'${APP_NAME}/

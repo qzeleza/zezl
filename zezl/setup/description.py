@@ -10,6 +10,14 @@ PERIOD_TABLE = {
 }
 
 class TextTagsENG:
+    false = 'false'
+    quit = 'quit'
+    exit = 'exit'
+    true = 'true'
+    debug = 'DEBUG'
+    err_ignore = 'err_ignore'
+    err_ignore_list = "err_ignore_list"
+    site_name = 'site_name'
     link_name = 'link_name'
     password = 'password'
     login = 'login'

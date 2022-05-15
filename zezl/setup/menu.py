@@ -1,3 +1,4 @@
+# coding=utf-8
 import setup.autosets as st
 from setup.data import LINE
 from setup.description import (
@@ -360,7 +361,9 @@ class Menu:
         class SitesMenu:
             Title = f"🌐 {bs}Сторож изменений на сайтах{be}\n" \
                     f"{LINE}" \
-                    f"{bs}Всего ссылок{be}: @1 шт.\n"
+                    f"{bs}Всего ссылок{be}: @1 шт.\n" \
+                    f"{LINE}"
+
             TitleNoItems = f"🌐 {bs}Сторож изменений на сайтах{be}\n" \
                            f"{LINE}" \
                            f"Список ссылок пуст."
@@ -388,10 +391,13 @@ class Menu:
 
             class EditLinkMenu:
                 Title = f"{bs}Отслеживаем{be}:\n" \
-                        f"@1\n" \
                         f"{LINE}" \
-                        f"Состояние: {bs}@2{be}\n" \
-                        f"Период: {bs}@3{be}\n" \
+                        f"Название: {bs}@1{be}\n" \
+                        f"@2\n" \
+                        f"Состояние: {bs}@3{be}\n" \
+                        f"Период проверки: {bs}@4{be}\n" \
+                        f"Крайняя проверка: {bs}@5{be}\n" \
+                        f"Крайнее обновление: {bs}@6{be}\n" \
                         f"{LINE}"
 
                 CmdItemsList = [

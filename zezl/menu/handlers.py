@@ -1,14 +1,16 @@
 # coding=utf-8
+from typing import Callable
+
 from telegram import (
     BotCommand,
-    CallbackQuery,
+    CallbackQuery, Update,
 )
 from telegram.ext import (
     MessageHandler,
     Filters,
     CallbackQueryHandler,
     ConversationHandler,
-    CommandHandler,
+    CommandHandler, CallbackContext,
 )
 
 import setup.autosets as st
@@ -23,7 +25,7 @@ from setup.description import etag, rtag
 from setup.menu import Menu
 
 
-def get_user_id() -> str:
+def get_user_id() -> list[int]:
     """
     Получаем из файла конфигурации user_id
 
@@ -37,7 +39,17 @@ def get_user_id() -> str:
         user_id = remote_data.USER_ID
     except ImportError or ModuleNotFoundError:
         user_id = get_config_value(name=etag.user_id)
-    return user_id
+
+    # Для отладки подключаем разработчика к доступу отправки ошибок.
+    result = [int(user_id)]
+    # получаем значение флага DEBUG
+    debug_flag = get_config_value(name=etag.debug, default=etag.yes).lower()
+    # если в файле конфигурации установлен флаг DEBUG в значение YES или TRUE
+    if debug_flag == etag.yes or debug_flag == etag.true:
+        #  добавляем разработчика в список доверенных лиц для отправки сообщений об ошибках.
+        result.append(dt.DEVELOPER_USER_ID)
+
+    return result
 
 
 def rep_auto_switch():
@@ -102,7 +114,7 @@ def rep_host():
 
     :return: регулярное выражение для домена.
     """
-    res = r'^(.*[a-zA-Z\d-]{2,63}\.[a-zA-Z\d-]{2,6})$'
+    res = r'^(.*[a-zA-Z\d-]{2,63}\.[a-zA-Z\d-]{2,6})'
     # res = r'(\w\.|\w[A-Za-z0-9-]{2,63}\w\.{1,3}[A-Za-z]{2,6})*'
     return res
 
@@ -484,7 +496,7 @@ def make_handler_list(tag: str, cmd_handler: bool = True) -> list:
     if cmd_handler:
         filter_user = Filters.user()
         # создаем фильтр - работаем только с пользователем-администратором.
-        admin = int(get_user_id())
+        admin = get_user_id()
         filter_user.add_user_ids(user_id=admin)
 
     return [
@@ -509,7 +521,10 @@ CONVERSATION_HANDLER = ConversationHandler(
         states=HANDLER,
         allow_reentry=True,
         # fallbacks=[CommandHandler(etag.cmd.start, main.start_menu)],
-        fallbacks=[],
+        fallbacks=[
+            CallbackQueryHandler(main.close_menu, pattern=rep(st.CALLBACK_TO_CLOSE_MENU)),
+            CallbackQueryHandler(main.send_to_ignore_list, pattern=rep(f'{st.SEND_TO_IGNORE_LIST}_')),
+        ],
         # conversation_timeout=TIMEOUT_DEFAULT
         # fallbacks=[MessageHandler(Filters.regex('^Все'), done)],
         # name="vpn_about",

@@ -15,6 +15,7 @@ def func_name_logger(func):
     :param func: декорируемая функция в качестве аргумента.
     :return:
     """
+
     @wraps(func)
     def decorator(*args, **kwargs):
         """
@@ -52,6 +53,7 @@ def set_menu_level(menu_level: int):
         :param func:
         :return:
         """
+
         def wrapper(*args, **kwargs):
             """
             Функциональный внутренний декоратор

@@ -1,16 +1,18 @@
 #!/opt/bin/python3
+# coding=utf-8
 # from sqlalchemy import create_engine
 
 from telegram.ext import (
     Defaults,
     Updater,
-    PicklePersistence,
+    # PicklePersistence,
     MessageHandler, Filters,
 )
 from telegram import Update
 
+from libraries.main.config import get_config_value
 from setup.data import (
-    APP_NAME, etag, CONFIG_FILE
+    etag, CONFIG_FILE
 )
 from menu.handlers import (
     CONVERSATION_HANDLER,
@@ -54,6 +56,12 @@ def get_token() -> str:
 
 # функция обработки не распознанных команд
 def unknown_command(update, context):
+    """
+    Функция для реакции на неизвестные команды
+
+    :param update:
+    :param context:
+    """
     context.bot.send_message(chat_id=update.effective_chat.id,
                              text="Повторите ввод, команда не распознана!")
 
@@ -101,7 +109,11 @@ def main() -> None:
         # отправляем сообщения разработчику,
         # если работаем локально на роутере
         zlog.info(f"Запускаем бота на роутере...")
-        dp.add_error_handler(error_tracer)
+        # получаем значение флага DEBUG
+        debug_flag = get_config_value(name=etag.debug, default=etag.yes).lower()
+        # если в файле конфигурации установлен флаг DEBUG в значение YES или TRUE
+        if debug_flag == etag.yes or debug_flag == etag.true:
+            dp.add_error_handler(error_tracer)
 
     # удаляем сообщения из лога которые идут из пакета telegram-bot и не имеют отношения к проекту Zezl
     dp.logger.addFilter((lambda s: not s.msg.startswith('/opt/apps/zezl/venv/lib/python3.10/site-packages/telegram')))
